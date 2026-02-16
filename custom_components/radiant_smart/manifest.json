@@ -4,6 +4,7 @@
   "codeowners": ["@fabio-garavini"],
   "config_flow": true,
   "documentation": "https://github.com/fabio-garavini/hassio-radiant-smart",
+  "issue_tracker": "https://github.com/fabio-garavini/hassio-radiant-smart/issues",
   "integration_type": "hub",
   "iot_class": "cloud_push",
   "loggers": ["logging"],
