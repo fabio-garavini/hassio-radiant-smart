@@ -1,0 +1,12 @@
+{
+  "domain": "radiant_smart",
+  "name": "Radiant Smart",
+  "codeowners": ["@fabio-garavini"],
+  "config_flow": true,
+  "documentation": "https://www.home-assistant.io/integrations/radarr",
+  "integration_type": "hub",
+  "iot_class": "cloud_push",
+  "loggers": ["logging"],
+  "requirements": ["paho-mqtt==2.1.0"],
+  "version": "0.1.0"
+}
