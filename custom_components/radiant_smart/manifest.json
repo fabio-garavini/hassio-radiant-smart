@@ -3,7 +3,7 @@
   "name": "Radiant Smart",
   "codeowners": ["@fabio-garavini"],
   "config_flow": true,
-  "documentation": "https://www.home-assistant.io/integrations/radarr",
+  "documentation": "https://github.com/fabio-garavini/hassio-radiant-smart",
   "integration_type": "hub",
   "iot_class": "cloud_push",
   "loggers": ["logging"],
