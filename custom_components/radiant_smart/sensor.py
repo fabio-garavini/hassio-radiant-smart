@@ -62,6 +62,7 @@ class RadiantSmartSensor(SensorEntity):
         self._attr_native_unit_of_measurement = self._data.unit_of_measurement
         self._attr_options = list(self._data.options.values()) if self._data.options is not None else None
         self._attr_entity_category = self._data.entity_category
+        self._attr_suggested_display_precision = data.suggested_display_precision
 
     async def async_added_to_hass(self) -> None:
         """Run when this entity has been added to HA."""

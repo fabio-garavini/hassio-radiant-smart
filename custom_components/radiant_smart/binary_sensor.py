@@ -47,8 +47,9 @@ class RadiantSmartBinarySensor(BinarySensorEntity):
         self._attr_unique_id = f"{self._data.data_point.device.name}_{self._data.name.lower().replace(" ", "_")}"
         self._attr_name = self._data.name.replace("_", " ")
         self._attr_icon = self._data.icon
-        self._attr_is_on = bool(self._data.data_point.get_value())
+        self._attr_is_on = bool(self._data.options.get(self._data.data_point.get_value()) if self._data.options is not None and self._data.options.get(self._data.data_point.get_value()) is not None else self._data.data_point.get_value())
         self._attr_device_class = self._data.device_class
+        self._attr_entity_category = self._data.entity_category
 
     async def async_added_to_hass(self) -> None:
         """Run when this entity has been added to HA."""
@@ -69,7 +70,7 @@ class RadiantSmartBinarySensor(BinarySensorEntity):
         return self._data.data_point.device.online
 
     def _handle_update(self) -> None:
-        self._attr_is_on = bool(self._data.data_point.get_value())
+        self._attr_is_on = bool(self._data.options.get(self._data.data_point.get_value()) if self._data.options is not None and self._data.options.get(self._data.data_point.get_value()) is not None else self._data.data_point.get_value())
         self.schedule_update_ha_state()
 
     @property

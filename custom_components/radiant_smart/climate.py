@@ -7,6 +7,7 @@ from homeassistant.components.climate import (
     DOMAIN as CLIMATE_DOMAIN,
     ClimateEntity,
     ClimateEntityFeature,
+    HVACAction,
     HVACMode,
 )
 from homeassistant.const import ATTR_TEMPERATURE
@@ -54,25 +55,32 @@ class RadiantSmartThermostat(ClimateEntity):
         self._attr_icon = data.icon
         self._attr_min_temp = data.min_temp.get_value() if data.min_temp is not None else 5.0
         self._attr_max_temp = data.max_temp.get_value() if data.min_temp is not None else 35.0
-        self._attr_current_temperature = data.current_temp.get_value()
         self._attr_target_temperature = data.target_temp.get_value()
         self._attr_target_temperature_step = data.target_temp_step
         self._attr_temperature_unit = data.temp_unit
         self._attr_supported_features = (ClimateEntityFeature.TARGET_TEMPERATURE | ClimateEntityFeature.TURN_OFF)
         self._attr_hvac_modes = list(data.hvac_modes.values())
         self._attr_hvac_mode = data.hvac_modes.get(data.hvac_mode.get_value())
+        self._attr_hvac_action = HVACAction.HEATING if data.current_action.get_value() else HVACAction.IDLE
+        self._attr_current_temperature = data.override_temp.get_value() if self._attr_hvac_mode == HVACMode.AUTO and data.override_enable.get_value() else data.current_temp.get_value()
 
     async def async_added_to_hass(self) -> None:
         """Run when this entity has been added to HA."""
         self._data.current_temp.add_listener(self._handle_update)
         self._data.target_temp.add_listener(self._handle_update)
+        self._data.override_enable.add_listener(self._handle_update)
+        self._data.override_temp.add_listener(self._handle_update)
         self._data.hvac_mode.add_listener(self._handle_update)
+        self._data.current_action.add_listener(self._handle_update)
 
     async def async_will_remove_from_hass(self) -> None:
         """Run when this entity will be removed from HA."""
         self._data.current_temp.remove_listener(self._handle_update)
         self._data.target_temp.remove_listener(self._handle_update)
+        self._data.override_enable.remove_listener(self._handle_update)
+        self._data.override_temp.remove_listener(self._handle_update)
         self._data.hvac_mode.remove_listener(self._handle_update)
+        self._data.current_action.remove_listener(self._handle_update)
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -86,7 +94,11 @@ class RadiantSmartThermostat(ClimateEntity):
 
     def set_temperature(self, **kwargs: Any) -> None:
         """Turn the water heater on."""
-        self._data.target_temp.set_value(kwargs.get(ATTR_TEMPERATURE))
+        if self._attr_hvac_mode == HVACMode.AUTO:
+            self._data.override_enable.set_value(1)
+            self._data.override_temp.set_value(kwargs.get(ATTR_TEMPERATURE))
+        else:
+            self._data.target_temp.set_value(kwargs.get(ATTR_TEMPERATURE))
 
     def set_hvac_mode(self, hvac_mode: HVACMode) -> None:
         """Turn the water heater on."""
@@ -96,14 +108,19 @@ class RadiantSmartThermostat(ClimateEntity):
 
     def turn_on(self) -> None:
         """Turn the water heater on."""
-        return
+        for v, m in self._data.hvac_modes.items():
+            if m == HVACMode.AUTO:
+                self._data.hvac_mode.set_value(v)
 
     def turn_off(self) -> None:
         """Turn the water heater on."""
-        return
+        for v, m in self._data.hvac_modes.items():
+            if m == HVACMode.OFF:
+                self._data.hvac_mode.set_value(v)
 
     def _handle_update(self) -> None:
         self._attr_current_temperature = self._data.current_temp.get_value()
-        self._attr_target_temperature = self._data.target_temp.get_value()
         self._attr_hvac_mode = self._data.hvac_modes.get(self._data.hvac_mode.get_value())
+        self._attr_hvac_action = HVACAction.HEATING if self._data.current_action.get_value() else HVACAction.IDLE
+        self._attr_target_temperature = self._data.override_temp.get_value() if self._attr_hvac_mode == HVACMode.AUTO and self._data.override_enable.get_value() else self._data.target_temp.get_value()
         self.schedule_update_ha_state()

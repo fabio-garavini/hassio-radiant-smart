@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+from enum import IntEnum, IntFlag
 import hashlib
 import json
 import logging
@@ -21,6 +22,7 @@ from homeassistant.components.number import NumberDeviceClass, NumberMode
 from homeassistant.components.sensor import SensorDeviceClass, SensorStateClass
 from homeassistant.components.switch import SwitchDeviceClass
 from homeassistant.const import (
+    PERCENTAGE,
     EntityCategory,
     UnitOfPressure,
     UnitOfTemperature,
@@ -465,8 +467,8 @@ class SmartDevice:
         self.select_data = self.get_select_data(self.unknown_points)
         self.switches_data = self.get_switches_data(self.unknown_points)
         self.numbers_data = self.get_numbers_data(self.unknown_points)
-        self.sensors_data = self.get_sensors_data(self.unknown_points)
         self.binary_sensors_data = self.get_binary_sensors_data(self.unknown_points)
+        self.sensors_data = self.get_sensors_data(self.unknown_points)
 
         self.remove_unsupported_data(self.unknown_points)
 
@@ -500,12 +502,14 @@ class SmartDevice:
             "PARAM_ID_BOILER_CH_SET_RANGE_UP",
             "PARAM_ID_BOILER_CH_MAX_SETPOINT",
             "PARAM_ID_BOILER_CH_TRG_TEMP",
+            "PARAM_ID_BOILER_OT_SLAVE_STATUS",
+            "SYS_WORK_MODE",
         )
 
         if all(k in data_points for k in ch_keys):
             water_heaters.append(
                 WaterHeaterData(
-                    name="Heating Water Heater",
+                    name="Radiators Water Heater",
                     icon="mdi:radiator",
                     min_temp=data_points.pop("PARAM_ID_BOILER_CH_SET_RANGE_DOWN"),
                     max_temp=data_points.pop("PARAM_ID_BOILER_CH_SET_RANGE_UP"),
@@ -513,6 +517,10 @@ class SmartDevice:
                     target_temp=data_points.pop("PARAM_ID_BOILER_CH_MAX_SETPOINT"),
                     target_temp_step=1.0,
                     temp_unit=UnitOfTemperature.CELSIUS,
+                    state=data_points.get("PARAM_ID_BOILER_OT_SLAVE_STATUS"),
+                    work_mode=data_points.get("SYS_WORK_MODE"),
+                    work_type=BoilerMode.HEATING,
+                    function=BoilerFunction.RADIATOR,
                 )
             )
 
@@ -521,6 +529,8 @@ class SmartDevice:
             "PARAM_ID_BOILER_DHW_SET_RANGE_DOWN",
             "PARAM_ID_BOILER_DHW_SET_RANGE_UP",
             "PARAM_ID_BOILER_DHW_TRG_TEMP",
+            "PARAM_ID_BOILER_OT_SLAVE_STATUS",
+            "SYS_WORK_MODE",
         )
 
         if all(k in data_points for k in dhw_keys):
@@ -534,6 +544,10 @@ class SmartDevice:
                     target_temp=data_points.pop("PARAM_ID_BOILER_DHW_TRG_TEMP"),
                     target_temp_step=1.0,
                     temp_unit=UnitOfTemperature.CELSIUS,
+                    state=data_points.get("PARAM_ID_BOILER_OT_SLAVE_STATUS"),
+                    work_mode=data_points.get("SYS_WORK_MODE"),
+                    work_type=BoilerMode.SANITARY,
+                    function=BoilerFunction.DOMESTIC,
                 )
             )
 
@@ -549,7 +563,10 @@ class SmartDevice:
         thermostat_keys = (
             "PARAM_ID_TH_CUR_ROOM_TEMP",
             "PARAM_ID_TH_TRG_ROOM_TEMP",
+            "PARAM_ID_TH_OVERRIDE_ENABLE",
+            "PARAM_ID_TH_OVERRIDE_TEMP",
             "PARAM_ID_TH_WORK_MODE",
+            "PARAM_ID_TH_CH_STATUS",
         )
 
         if all(k in data_points for k in thermostat_keys):
@@ -559,8 +576,11 @@ class SmartDevice:
                     icon="mdi:thermostat",
                     current_temp=data_points.pop("PARAM_ID_TH_CUR_ROOM_TEMP"),
                     target_temp=data_points.pop("PARAM_ID_TH_TRG_ROOM_TEMP"),
+                    override_enable=data_points.pop("PARAM_ID_TH_OVERRIDE_ENABLE"),
+                    override_temp=data_points.pop("PARAM_ID_TH_OVERRIDE_TEMP"),
                     hvac_modes={0: HVACMode.AUTO, 1: HVACMode.HEAT, 4: HVACMode.OFF},
                     hvac_mode=data_points.pop("PARAM_ID_TH_WORK_MODE"),
+                    current_action=data_points.pop("PARAM_ID_TH_CH_STATUS"),
                     target_temp_step=0.5,
                     temp_unit=UnitOfTemperature.CELSIUS,
                 )
@@ -611,10 +631,26 @@ class SmartDevice:
                     name="Work Mode",
                     icon="mdi:auto-mode",
                     options={
-                        0: "Standby",
-                        2: "Sanitary",
-                        3: "Heating",
-                        10: "Heating & Sanitary",
+                        BoilerMode.STANDBY: "Standby",
+                        BoilerMode.SANITARY: "Sanitary",
+                        BoilerMode.HEATING: "Heating",
+                        BoilerMode.HEATING_SANITARY: "Heating & Sanitary",
+                    },
+                )
+            )
+
+        if data_points.get("PARAM_ID_TH_CH_CALCULATE") is not None:
+            select.append(
+                SelectData(
+                    data_point=data_points.pop("PARAM_ID_TH_CH_CALCULATE"),
+                    name="Control Type",
+                    icon="mdi:auto-mode",
+                    options={
+                        0: "ON/OFF",
+                        1: "Outdoor Temperature",
+                        2: "Room Temperature",
+                        3: "Room & Outdoor Temperature",
+                        4: "None",
                     },
                 )
             )
@@ -637,6 +673,7 @@ class SmartDevice:
                     device_class=SensorDeviceClass.TEMPERATURE,
                     state_class=SensorStateClass.MEASUREMENT,
                     unit_of_measurement=UnitOfTemperature.CELSIUS,
+                    entity_category=EntityCategory.DIAGNOSTIC,
                 )
             )
 
@@ -650,8 +687,23 @@ class SmartDevice:
                         device_class=SensorDeviceClass.TEMPERATURE,
                         state_class=SensorStateClass.MEASUREMENT,
                         unit_of_measurement=UnitOfTemperature.CELSIUS,
+                        entity_category=EntityCategory.DIAGNOSTIC,
                     )
                 )
+
+            elif k == "PARAM_ID_BOILER_CH_CUR_TEMP":
+                sensors_data.append(
+                    SensorData(
+                        data_point=data_points.pop(k),
+                        name="Boiler CH Temperature",
+                        icon="mdi:thermometer",
+                        device_class=SensorDeviceClass.TEMPERATURE,
+                        state_class=SensorStateClass.MEASUREMENT,
+                        unit_of_measurement=UnitOfTemperature.CELSIUS,
+                        entity_category=EntityCategory.DIAGNOSTIC,
+                    )
+                )
+
             elif k.endswith("_TEMP"):
                 sensors_data.append(
                     SensorData(
@@ -709,6 +761,17 @@ class SmartDevice:
                     )
                 )
 
+            if k == "PARAM_ID_BOILER_PWM_OUT":
+                sensors_data.append(
+                    SensorData(
+                        data_point=data_points.pop(k),
+                        name="Power",
+                        icon="mdi:gas-burner",
+                        unit_of_measurement=PERCENTAGE,
+                        suggested_display_precision=0
+                    )
+                )
+
             if k == "PARAM_ID_BOILER_OT_SLAVE_STATUS":
                 sensors_data.append(
                     SensorData(
@@ -717,11 +780,14 @@ class SmartDevice:
                         icon="mdi:state-machine",
                         device_class=SensorDeviceClass.ENUM,
                         options={
-                            0: "Standby",
-                            2: "Radiators",
-                            4: "Domestic Water",
-                            10: "Flame + Radiators",
-                            12: "Flame + Domestic Water",
+                            BoilerFunction.IDLE: "Standby",
+                            BoilerFunction.UNKNOWN_1: "Unknown (1)",
+                            BoilerFunction.RADIATOR: "Radiators",
+                            BoilerFunction.DOMESTIC: "Domestic Water",
+                            BoilerFunction.FLAME: "Flame",
+                            BoilerFunction.RADIATOR | BoilerFunction.FLAME: "Flame + Radiators",
+                            BoilerFunction.DOMESTIC | BoilerFunction.FLAME: "Flame + Domestic Water",
+                            BoilerFunction.UNKNOWN_1 | BoilerFunction.RADIATOR | BoilerFunction.DOMESTIC | BoilerFunction.FLAME: "Unknown (15)"
                         }
                     )
                 )
@@ -749,7 +815,7 @@ class SmartDevice:
             numbers.append(
                 NumberData(
                     data_point=data_points.pop("PARAM_ID_TH_POWEROFF_FROZE_TEMP"),
-                    name="Poweroff Froze Temperature",
+                    name="Froze Temperature",
                     icon="mdi:snowflake-thermometer",
                     device_class=NumberDeviceClass.TEMPERATURE,
                     unit_of_measurement=UnitOfTemperature.CELSIUS,
@@ -757,6 +823,21 @@ class SmartDevice:
                     min_value=5.0,
                     max_value=15.0,
                     step_value=0.5,
+                )
+            )
+
+        if data_points.get("PARAM_ID_TH_CLIMATE_CURVE") is not None:
+            numbers.append(
+                NumberData(
+                    data_point=data_points.pop("PARAM_ID_TH_CLIMATE_CURVE"),
+                    name="Climate Curve",
+                    icon="mdi:chart-bell-curve-cumulative",
+                    device_class=None,
+                    unit_of_measurement="Kd",
+                    mode=NumberMode.BOX,
+                    min_value=0.0,
+                    max_value=30.0,
+                    step_value=5.0,
                 )
             )
 
@@ -770,6 +851,37 @@ class SmartDevice:
         binary_sensors_data = []
 
         for k, d in list(data_points.items()):
+            if k == "RESET_FAULT":
+                binary_sensors_data.append(
+                    SensorData(
+                        data_point=data_points.pop(k),
+                        name="Reset Fault",
+                        icon="mdi:alert-remove",
+                        device_class=BinarySensorDeviceClass.PROBLEM,
+                        entity_category=EntityCategory.DIAGNOSTIC,
+                    )
+                )
+
+            if k == "PARAM_ID_BOILER_OT_SLAVE_STATUS":
+                binary_sensors_data.append(
+                    SensorData(
+                        data_point=data_points.get(k),
+                        name="Flame",
+                        icon="mdi:fire",
+                        device_class=BinarySensorDeviceClass.POWER,
+                        options={
+                            BoilerFunction.IDLE: 0,
+                            BoilerFunction.UNKNOWN_1: 0,
+                            BoilerFunction.RADIATOR: 0,
+                            BoilerFunction.DOMESTIC: 0,
+                            BoilerFunction.FLAME: 1,
+                            BoilerFunction.RADIATOR | BoilerFunction.FLAME: 1,
+                            BoilerFunction.DOMESTIC | BoilerFunction.FLAME: 1,
+                            BoilerFunction.UNKNOWN_1 | BoilerFunction.RADIATOR | BoilerFunction.DOMESTIC | BoilerFunction.FLAME: 1
+                        }
+                    )
+                )
+
             if k == "PARAM_ID_BOILER_IS_ROOM_SENSOR_ENABL":
                 binary_sensors_data.append(
                     SensorData(
@@ -787,6 +899,7 @@ class SmartDevice:
                         name="Thermostat Connection",
                         icon="mdi:thermostat-box",
                         device_class=BinarySensorDeviceClass.CONNECTIVITY,
+                        entity_category=EntityCategory.DIAGNOSTIC,
                     )
                 )
 
@@ -803,6 +916,21 @@ class SmartDevice:
                     SensorData(
                         data_point=data_points.pop(k),
                         name=d.name.title(),
+                    )
+                )
+
+            if k.endswith("_RELAY_STATE"):
+                binary_sensors_data.append(
+                    SensorData(
+                        data_point=data_points.pop(k),
+                        name="Relay State",
+                        icon="mdi:electric-switch",
+                        device_class=BinarySensorDeviceClass.POWER,
+                        options={
+                            1: 0,
+                            2: 1,
+                        },
+                        entity_category=EntityCategory.DIAGNOSTIC,
                     )
                 )
 
@@ -890,8 +1018,9 @@ class SensorData:
         state_class: SensorStateClass | None = None,
         icon: str | None = None,
         unit_of_measurement: str | None = None,
-        options: dict[int, str] | None = None,
+        options: dict[int, Any] | None = None,
         entity_category: EntityCategory | None = None,
+        suggested_display_precision: int | None = None
     ) -> None:
         """Initialize."""
         self.data_point = data_point
@@ -902,6 +1031,7 @@ class SensorData:
         self.unit_of_measurement = unit_of_measurement
         self.options = options
         self.entity_category = entity_category
+        self.suggested_display_precision = suggested_display_precision
 
 
 class SwitchData:
@@ -965,6 +1095,21 @@ class SelectData:
         self.options = options
 
 
+class BoilerFunction(IntFlag):
+    """Water heater functions."""
+    IDLE = 0
+    UNKNOWN_1 = 1
+    RADIATOR = 2
+    DOMESTIC = 4
+    FLAME = 8
+
+class BoilerMode(IntEnum):
+    """Water heater modes."""
+    STANDBY = 0
+    SANITARY = 2
+    HEATING = 3
+    HEATING_SANITARY = 10
+
 class WaterHeaterData:
     """Radiant Smart Water Heater Data."""
 
@@ -977,6 +1122,10 @@ class WaterHeaterData:
         target_temp: SmartDeviceDataPoint,
         target_temp_step: float,
         temp_unit: str,
+        state: SmartDeviceDataPoint,
+        work_mode: SmartDeviceDataPoint,
+        work_type: BoilerMode,
+        function: BoilerFunction,
         icon: str | None = None,
     ) -> None:
         """Initialize the water heater data."""
@@ -988,6 +1137,10 @@ class WaterHeaterData:
         self.target_temp = target_temp
         self.target_temp_step = target_temp_step
         self.temp_unit = temp_unit
+        self.state = state
+        self.work_mode = work_mode
+        self.work_type = work_type
+        self.function = function
 
 
 class ClimateData:
@@ -998,8 +1151,11 @@ class ClimateData:
         name: str,
         current_temp: SmartDeviceDataPoint,
         target_temp: SmartDeviceDataPoint,
+        override_enable: SmartDeviceDataPoint,
+        override_temp: SmartDeviceDataPoint,
         hvac_mode: SmartDeviceDataPoint,
         hvac_modes: dict[int, HVACMode],
+        current_action: SmartDeviceDataPoint,
         target_temp_step: float,
         temp_unit: str,
         icon: str | None = None,
@@ -1013,7 +1169,10 @@ class ClimateData:
         self.max_temp = max_temp
         self.current_temp = current_temp
         self.target_temp = target_temp
+        self.override_enable = override_enable
+        self.override_temp = override_temp
         self.target_temp_step = target_temp_step
         self.temp_unit = temp_unit
         self.hvac_mode = hvac_mode
         self.hvac_modes = hvac_modes
+        self.current_action = current_action
