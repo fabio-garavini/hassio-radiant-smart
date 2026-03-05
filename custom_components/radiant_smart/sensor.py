@@ -3,6 +3,7 @@
 import logging
 
 from homeassistant.components.sensor import DOMAIN as SENSOR_DOMAIN, SensorEntity
+from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
@@ -34,6 +35,7 @@ async def async_setup_entry(
                     SensorData(
                         data_point=point,
                         name=point.name,
+                        entity_category=EntityCategory.DIAGNOSTIC
                     )
                 )
             )

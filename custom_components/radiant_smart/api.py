@@ -1,4 +1,5 @@
 """Topband cloud api handling."""
+
 from __future__ import annotations
 
 import asyncio
@@ -97,7 +98,7 @@ class TopbandCloudApi:
     def publish_mqtt_message(self, topic: str, payload) -> None:
         """Publish MQTT message."""
         self._mqtt.publish(topic, payload)
-        _LOGGER.info("Published to topic %s: %s", topic, payload)
+        _LOGGER.debug("Published to topic %s: %s", topic, payload)
 
     def mqtt_subscribe(self, topic: str) -> None:
         """Subscribe to the Topband cloud MQTT topics."""
@@ -106,7 +107,7 @@ class TopbandCloudApi:
             return
 
         self._mqtt.subscribe(topic)
-        _LOGGER.info("Subscribed to topic: %s", topic)
+        _LOGGER.debug("Subscribed to topic: %s", topic)
 
     def on_mqtt_connect(
         self,
@@ -120,7 +121,7 @@ class TopbandCloudApi:
         if reason_code == 0:
             _LOGGER.info("Connected successfully!")
         else:
-            _LOGGER.info("Connection failed with reason code %s", reason_code)
+            _LOGGER.error("Connection failed with reason code %s", reason_code)
 
     def on_mqtt_message(self, client: mqtt.Client, userdata, msg: mqtt.MQTTMessage):
         """Handle incoming MQTT messages."""
@@ -131,7 +132,9 @@ class TopbandCloudApi:
             for d in cast(list[dict[str, Any]], data.get("data", [])):
                 match d.get("cmd"):
                     case 98:
-                        self.devices.get(d.get("mac", "")).handle_mqtt_command(d.get("command", {}))
+                        self.devices.get(d.get("mac", "")).handle_mqtt_command(
+                            d.get("command", {})
+                        )
                     case _:
                         _LOGGER.warning(
                             "Unknown MQTT command [%d]: %s",
@@ -401,8 +404,10 @@ class TopbandCloudApi:
             _LOGGER.error("Error fetching information from %s: %s", url, exc)
             raise TopbandApiClientError from exc
 
+
 class TopbandApiClientError(Exception):
     """General TopbandApiClient error."""
+
 
 class SmartDevice:
     """Radiant Smart Device."""
@@ -445,7 +450,9 @@ class SmartDevice:
         self.parse_data_points()
 
         self._api.mqtt_subscribe(f"{self.product_id}/{self.gateway.uid}/business")
-        self._api.mqtt_subscribe(f"{self.gateway.product_id}/{self.gateway.uid}/upload/point/data")
+        self._api.mqtt_subscribe(
+            f"{self.gateway.product_id}/{self.gateway.uid}/upload/point/data"
+        )
 
     def handle_mqtt_command(self, data: dict[str, dict[str, Any]]) -> None:
         """Handle incoming mqtt command."""
@@ -502,7 +509,6 @@ class SmartDevice:
             "PARAM_ID_BOILER_CH_SET_RANGE_UP",
             "PARAM_ID_BOILER_CH_MAX_SETPOINT",
             "PARAM_ID_BOILER_CH_TRG_TEMP",
-            "PARAM_ID_BOILER_OT_SLAVE_STATUS",
             "SYS_WORK_MODE",
         )
 
@@ -517,10 +523,8 @@ class SmartDevice:
                     target_temp=data_points.pop("PARAM_ID_BOILER_CH_MAX_SETPOINT"),
                     target_temp_step=1.0,
                     temp_unit=UnitOfTemperature.CELSIUS,
-                    state=data_points.get("PARAM_ID_BOILER_OT_SLAVE_STATUS"),
                     work_mode=data_points.get("SYS_WORK_MODE"),
                     work_type=BoilerMode.HEATING,
-                    function=BoilerFunction.RADIATOR,
                 )
             )
 
@@ -529,7 +533,6 @@ class SmartDevice:
             "PARAM_ID_BOILER_DHW_SET_RANGE_DOWN",
             "PARAM_ID_BOILER_DHW_SET_RANGE_UP",
             "PARAM_ID_BOILER_DHW_TRG_TEMP",
-            "PARAM_ID_BOILER_OT_SLAVE_STATUS",
             "SYS_WORK_MODE",
         )
 
@@ -544,10 +547,8 @@ class SmartDevice:
                     target_temp=data_points.pop("PARAM_ID_BOILER_DHW_TRG_TEMP"),
                     target_temp_step=1.0,
                     temp_unit=UnitOfTemperature.CELSIUS,
-                    state=data_points.get("PARAM_ID_BOILER_OT_SLAVE_STATUS"),
                     work_mode=data_points.get("SYS_WORK_MODE"),
                     work_type=BoilerMode.SANITARY,
-                    function=BoilerFunction.DOMESTIC,
                 )
             )
 
@@ -704,6 +705,45 @@ class SmartDevice:
                     )
                 )
 
+            elif k == "PARAM_ID_TH_ANTI_FROZE_TEMP":
+                sensors_data.append(
+                    SensorData(
+                        data_point=data_points.pop(k),
+                        name="Anti Froze Temperature",
+                        icon="mdi:snowflake-thermometer",
+                        device_class=SensorDeviceClass.TEMPERATURE,
+                        state_class=SensorStateClass.MEASUREMENT,
+                        unit_of_measurement=UnitOfTemperature.CELSIUS,
+                        entity_category=EntityCategory.DIAGNOSTIC,
+                    )
+                )
+
+            elif k == "PARAM_ID_TH_CFT_TEMP":
+                sensors_data.append(
+                    SensorData(
+                        data_point=data_points.pop(k),
+                        name="CFT Temperature",
+                        icon="mdi:thermometer",
+                        device_class=SensorDeviceClass.TEMPERATURE,
+                        state_class=SensorStateClass.MEASUREMENT,
+                        unit_of_measurement=UnitOfTemperature.CELSIUS,
+                        entity_category=EntityCategory.DIAGNOSTIC,
+                    )
+                )
+
+            elif k == "PARAM_ID_TH_ECO_TEMP":
+                sensors_data.append(
+                    SensorData(
+                        data_point=data_points.pop(k),
+                        name="Eco Temperature",
+                        icon="mdi:thermometer",
+                        device_class=SensorDeviceClass.TEMPERATURE,
+                        state_class=SensorStateClass.MEASUREMENT,
+                        unit_of_measurement=UnitOfTemperature.CELSIUS,
+                        entity_category=EntityCategory.DIAGNOSTIC,
+                    )
+                )
+
             elif k.endswith("_TEMP"):
                 sensors_data.append(
                     SensorData(
@@ -768,7 +808,7 @@ class SmartDevice:
                         name="Power",
                         icon="mdi:gas-burner",
                         unit_of_measurement=PERCENTAGE,
-                        suggested_display_precision=0
+                        suggested_display_precision=0,
                     )
                 )
 
@@ -785,10 +825,15 @@ class SmartDevice:
                             BoilerFunction.RADIATOR: "Radiators",
                             BoilerFunction.DOMESTIC: "Domestic Water",
                             BoilerFunction.FLAME: "Flame",
-                            BoilerFunction.RADIATOR | BoilerFunction.FLAME: "Flame + Radiators",
-                            BoilerFunction.DOMESTIC | BoilerFunction.FLAME: "Flame + Domestic Water",
-                            BoilerFunction.UNKNOWN_1 | BoilerFunction.RADIATOR | BoilerFunction.DOMESTIC | BoilerFunction.FLAME: "Unknown (15)"
-                        }
+                            BoilerFunction.RADIATOR
+                            | BoilerFunction.FLAME: "Flame + Radiators",
+                            BoilerFunction.DOMESTIC
+                            | BoilerFunction.FLAME: "Flame + Domestic Water",
+                            BoilerFunction.UNKNOWN_1
+                            | BoilerFunction.RADIATOR
+                            | BoilerFunction.DOMESTIC
+                            | BoilerFunction.FLAME: "Unknown (15)",
+                        },
                     )
                 )
 
@@ -868,7 +913,7 @@ class SmartDevice:
                         data_point=data_points.get(k),
                         name="Flame",
                         icon="mdi:fire",
-                        device_class=BinarySensorDeviceClass.POWER,
+                        device_class=BinarySensorDeviceClass.RUNNING,
                         options={
                             BoilerFunction.IDLE: 0,
                             BoilerFunction.UNKNOWN_1: 0,
@@ -877,8 +922,55 @@ class SmartDevice:
                             BoilerFunction.FLAME: 1,
                             BoilerFunction.RADIATOR | BoilerFunction.FLAME: 1,
                             BoilerFunction.DOMESTIC | BoilerFunction.FLAME: 1,
-                            BoilerFunction.UNKNOWN_1 | BoilerFunction.RADIATOR | BoilerFunction.DOMESTIC | BoilerFunction.FLAME: 1
-                        }
+                            BoilerFunction.UNKNOWN_1
+                            | BoilerFunction.RADIATOR
+                            | BoilerFunction.DOMESTIC
+                            | BoilerFunction.FLAME: 1,
+                        },
+                    )
+                )
+
+                binary_sensors_data.append(
+                    SensorData(
+                        data_point=data_points.get(k),
+                        name="Radiators Water Flow",
+                        icon="mdi:radiator",
+                        device_class=BinarySensorDeviceClass.OPENING,
+                        options={
+                            BoilerFunction.IDLE: 0,
+                            BoilerFunction.UNKNOWN_1: 0,
+                            BoilerFunction.RADIATOR: 1,
+                            BoilerFunction.DOMESTIC: 0,
+                            BoilerFunction.FLAME: 0,
+                            BoilerFunction.RADIATOR | BoilerFunction.FLAME: 1,
+                            BoilerFunction.DOMESTIC | BoilerFunction.FLAME: 0,
+                            BoilerFunction.UNKNOWN_1
+                            | BoilerFunction.RADIATOR
+                            | BoilerFunction.DOMESTIC
+                            | BoilerFunction.FLAME: 1,
+                        },
+                    )
+                )
+
+                binary_sensors_data.append(
+                    SensorData(
+                        data_point=data_points.get(k),
+                        name="Domestic Water Flow",
+                        icon="mdi:faucet",
+                        device_class=BinarySensorDeviceClass.OPENING,
+                        options={
+                            BoilerFunction.IDLE: 0,
+                            BoilerFunction.UNKNOWN_1: 0,
+                            BoilerFunction.RADIATOR: 0,
+                            BoilerFunction.DOMESTIC: 1,
+                            BoilerFunction.FLAME: 0,
+                            BoilerFunction.RADIATOR | BoilerFunction.FLAME: 0,
+                            BoilerFunction.DOMESTIC | BoilerFunction.FLAME: 1,
+                            BoilerFunction.UNKNOWN_1
+                            | BoilerFunction.RADIATOR
+                            | BoilerFunction.DOMESTIC
+                            | BoilerFunction.FLAME: 1,
+                        },
                     )
                 )
 
@@ -889,6 +981,7 @@ class SmartDevice:
                         name="External Temperature Sensor",
                         icon="mdi:thermometer-probe",
                         device_class=BinarySensorDeviceClass.PLUG,
+                        entity_category=EntityCategory.DIAGNOSTIC,
                     )
                 )
 
@@ -936,6 +1029,7 @@ class SmartDevice:
 
         return binary_sensors_data
 
+
 class Gateway:
     """Radiant Smart Gateway."""
 
@@ -943,6 +1037,7 @@ class Gateway:
         """Initialize the gateway."""
         self.uid = uid
         self.product_id = product_id
+
 
 class SmartDeviceDataPoint:
     """Radiant Smart Data Point."""
@@ -1020,7 +1115,7 @@ class SensorData:
         unit_of_measurement: str | None = None,
         options: dict[int, Any] | None = None,
         entity_category: EntityCategory | None = None,
-        suggested_display_precision: int | None = None
+        suggested_display_precision: int | None = None,
     ) -> None:
         """Initialize."""
         self.data_point = data_point
@@ -1097,18 +1192,22 @@ class SelectData:
 
 class BoilerFunction(IntFlag):
     """Water heater functions."""
+
     IDLE = 0
     UNKNOWN_1 = 1
     RADIATOR = 2
     DOMESTIC = 4
     FLAME = 8
 
+
 class BoilerMode(IntEnum):
     """Water heater modes."""
+
     STANDBY = 0
     SANITARY = 2
     HEATING = 3
     HEATING_SANITARY = 10
+
 
 class WaterHeaterData:
     """Radiant Smart Water Heater Data."""
@@ -1122,10 +1221,8 @@ class WaterHeaterData:
         target_temp: SmartDeviceDataPoint,
         target_temp_step: float,
         temp_unit: str,
-        state: SmartDeviceDataPoint,
         work_mode: SmartDeviceDataPoint,
         work_type: BoilerMode,
-        function: BoilerFunction,
         icon: str | None = None,
     ) -> None:
         """Initialize the water heater data."""
@@ -1137,10 +1234,8 @@ class WaterHeaterData:
         self.target_temp = target_temp
         self.target_temp_step = target_temp_step
         self.temp_unit = temp_unit
-        self.state = state
         self.work_mode = work_mode
         self.work_type = work_type
-        self.function = function
 
 
 class ClimateData:

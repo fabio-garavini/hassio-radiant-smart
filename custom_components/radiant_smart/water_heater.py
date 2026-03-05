@@ -5,10 +5,11 @@ from typing import Any
 
 from homeassistant.components.water_heater import (
     DOMAIN as WATER_HEATER_DOMAIN,
+    STATE_GAS,
     WaterHeaterEntity,
     WaterHeaterEntityFeature,
 )
-from homeassistant.const import ATTR_TEMPERATURE, STATE_IDLE, STATE_OFF, STATE_ON
+from homeassistant.const import ATTR_TEMPERATURE, STATE_OFF
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
@@ -57,29 +58,25 @@ class RadiantSmartWaterHeater(WaterHeaterEntity):
         self._attr_target_temperature = data.target_temp.get_value()
         self._attr_target_temperature_step = data.target_temp_step
         self._attr_temperature_unit = data.temp_unit
-        self._attr_supported_features = (WaterHeaterEntityFeature.TARGET_TEMPERATURE | WaterHeaterEntityFeature.ON_OFF)
-        self._attr_operation_list = [STATE_OFF, STATE_IDLE, STATE_ON]
+        self._attr_supported_features = (WaterHeaterEntityFeature.TARGET_TEMPERATURE | WaterHeaterEntityFeature.ON_OFF | WaterHeaterEntityFeature.OPERATION_MODE)
+        self._attr_operation_list = [STATE_OFF, STATE_GAS]
         self._attr_current_operation = self._parse_current_operation()
 
     def _parse_current_operation(self) -> str:
-        if self._data.work_mode.get_value() == BoilerMode.STANDBY or self._data.work_mode.get_value() == self._data.work_type:
-            return STATE_OFF
-        if self._data.state.get_value() & self._data.function:
-            return STATE_ON
-        return STATE_IDLE
+        if self._data.work_mode.get_value() == BoilerMode.HEATING_SANITARY or self._data.work_mode.get_value() == self._data.work_type:
+            return STATE_GAS
+        return STATE_OFF
 
     async def async_added_to_hass(self) -> None:
         """Run when this entity has been added to HA."""
         self._data.current_temp.add_listener(self._handle_update)
         self._data.target_temp.add_listener(self._handle_update)
-        self._data.state.add_listener(self._handle_update)
         self._data.work_mode.add_listener(self._handle_update)
 
     async def async_will_remove_from_hass(self) -> None:
         """Run when this entity will be removed from HA."""
         self._data.current_temp.remove_listener(self._handle_update)
         self._data.target_temp.remove_listener(self._handle_update)
-        self._data.state.remove_listener(self._handle_update)
         self._data.work_mode.remove_listener(self._handle_update)
 
     @property
@@ -92,28 +89,36 @@ class RadiantSmartWaterHeater(WaterHeaterEntity):
         """Return True if roller and hub is available."""
         return self._device.online
 
-    @property
-    def current_temperature(self) -> float | None:
-        """Return the current temperature."""
-        return self._attr_current_temperature
-
-    @property
-    def target_temperature(self) -> float | None:
-        """Return the temperature we try to reach."""
-        return self._attr_target_temperature
-
-    @property
-    def current_operation(self) -> str | None:
-        """Return current operation ie. eco, electric, performance, ..."""
-        return self._attr_current_operation
-
     def set_temperature(self, **kwargs: Any) -> None:
         """Turn the water heater on."""
         self._data.target_temp.set_value(kwargs.get(ATTR_TEMPERATURE))
 
-    # def set_operation_mode(self, operation_mode: str) -> None:
-    #     """Turn the water heater on."""
-    #     return
+    def turn_on(self, **kwargs: Any) -> None:
+        """Turn the water heater on."""
+        match self._data.work_mode.get_value():
+            case BoilerMode.STANDBY:
+                self._data.work_mode.set_value(self._data.work_type)
+            case BoilerMode.HEATING_SANITARY, self._data.work_type:
+                return
+            case _:
+                self._data.work_mode.set_value(BoilerMode.HEATING_SANITARY)
+
+    def turn_off(self, **kwargs: Any) -> None:
+        """Turn the water heater off."""
+        match self._data.work_mode.get_value():
+            case self._data.work_type:
+                self._data.work_mode.set_value(BoilerMode.STANDBY)
+            case BoilerMode.HEATING_SANITARY:
+                self._data.work_mode.set_value(BoilerMode.HEATING) if self._data.work_type == BoilerMode.SANITARY else self._data.work_mode.set_value(BoilerMode.SANITARY)
+            case BoilerMode.STANDBY, _:
+                return
+
+    def set_operation_mode(self, operation_mode: str) -> None:
+        """Set water heater operation mode."""
+        if operation_mode == STATE_GAS:
+            self.turn_on()
+        else:
+            self.turn_off()
 
     def _handle_update(self) -> None:
         self._attr_current_temperature = self._data.current_temp.get_value()
