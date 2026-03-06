@@ -833,6 +833,20 @@ class SmartDevice:
                             | BoilerFunction.RADIATOR
                             | BoilerFunction.DOMESTIC
                             | BoilerFunction.FLAME: "Unknown (15)",
+                            BoilerFunction.UNKNOWN_1
+                            | BoilerFunction.RADIATOR
+                            | BoilerFunction.DOMESTIC
+                            | BoilerFunction.FLAME
+                            | BoilerFunction.UNKNOWN_5
+                            | BoilerFunction.UNKNOWN_6: "Unknown (63)",
+                            BoilerFunction.UNKNOWN_1
+                            | BoilerFunction.RADIATOR
+                            | BoilerFunction.DOMESTIC
+                            | BoilerFunction.FLAME
+                            | BoilerFunction.UNKNOWN_5
+                            | BoilerFunction.UNKNOWN_6
+                            | BoilerFunction.UNKNOWN_7
+                            | BoilerFunction.UNKNOWN_8: "Unknown (255)",
                         },
                     )
                 )
@@ -1198,6 +1212,10 @@ class BoilerFunction(IntFlag):
     RADIATOR = 2
     DOMESTIC = 4
     FLAME = 8
+    UNKNOWN_5 = 16
+    UNKNOWN_6 = 32
+    UNKNOWN_7 = 64
+    UNKNOWN_8 = 128
 
 
 class BoilerMode(IntEnum):
