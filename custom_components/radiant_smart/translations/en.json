@@ -1,21 +1,39 @@
 {
-    "config": {
-        "abort": {
-            "already_configured": "Device is already configured"
-        },
-        "error": {
-            "cannot_connect": "Failed to connect",
-            "invalid_auth": "Invalid authentication",
-            "unknown": "Unexpected error"
-        },
-        "step": {
-            "user": {
-                "data": {
-                    "host": "Host",
-                    "password": "Password",
-                    "username": "Username"
-                }
-            }
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to Radiant Smart",
+        "description": "Log in with your Radiant Smart app credentials.",
+        "data": {
+          "company_id": "Brand",
+          "email": "Email",
+          "password": "Password"
         }
+      },
+      "home": {
+        "title": "Select your home",
+        "description": "Choose the home that contains your Radiant Smart devices.",
+        "data": {
+          "home_id": "Home"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Re-authenticate Radiant Smart",
+        "description": "Your Radiant Smart session has expired. Log in again with your app credentials.",
+        "data": {
+          "email": "Email",
+          "password": "Password"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Failed to connect",
+      "invalid_auth": "Invalid authentication",
+      "unknown": "Unexpected error"
+    },
+    "abort": {
+      "already_configured": "Device is already configured",
+      "reauth_successful": "Re-authentication was successful"
     }
+  }
 }

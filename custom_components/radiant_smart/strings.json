@@ -2,9 +2,26 @@
   "config": {
     "step": {
       "user": {
+        "title": "Connect to Radiant Smart",
+        "description": "Log in with your Radiant Smart app credentials.",
         "data": {
-          "host": "[%key:common::config_flow::data::host%]",
-          "username": "[%key:common::config_flow::data::username%]",
+          "company_id": "Brand",
+          "email": "Email",
+          "password": "[%key:common::config_flow::data::password%]"
+        }
+      },
+      "home": {
+        "title": "Select your home",
+        "description": "Choose the home that contains your Radiant Smart devices.",
+        "data": {
+          "home_id": "Home"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Re-authenticate Radiant Smart",
+        "description": "Your Radiant Smart session has expired. Log in again with your app credentials.",
+        "data": {
+          "email": "[%key:common::config_flow::data::email%]",
           "password": "[%key:common::config_flow::data::password%]"
         }
       }
@@ -15,7 +32,8 @@
       "unknown": "[%key:common::config_flow::error::unknown%]"
     },
     "abort": {
-      "already_configured": "[%key:common::config_flow::abort::already_configured_device%]"
+      "already_configured": "[%key:common::config_flow::abort::already_configured%]",
+      "reauth_successful": "[%key:common::config_flow::abort::reauth_successful%]"
     }
   }
 }

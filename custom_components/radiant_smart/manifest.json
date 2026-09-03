@@ -3,11 +3,11 @@
   "name": "Radiant Smart",
   "codeowners": ["@fabio-garavini"],
   "config_flow": true,
+  "diagnostics": true,
   "documentation": "https://github.com/fabio-garavini/hassio-radiant-smart",
   "integration_type": "hub",
   "iot_class": "cloud_push",
   "issue_tracker": "https://github.com/fabio-garavini/hassio-radiant-smart/issues",
-  "loggers": ["logging"],
   "requirements": ["paho-mqtt==2.1.0"],
-  "version": "0.1.0"
+  "version": "0.2.0"
 }

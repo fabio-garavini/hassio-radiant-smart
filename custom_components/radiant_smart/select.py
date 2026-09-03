@@ -1,77 +1,77 @@
-"""Select platform for Radiant Smart integration."""
+"""Select platform for the Radiant Smart integration."""
+
+from __future__ import annotations
 
 import logging
 
-from homeassistant.components.select import DOMAIN as SELECT_DOMAIN, SelectEntity
+from homeassistant.components.select import SelectEntity
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import TopbandConfigEntry
-from .api import SelectData
-from .const import DOMAIN
+from .datapoints import SelectSpec
+from .entity import RadiantSmartEntity
+from .models import DataPoint
 
-_LOGGER: logging.Logger = logging.getLogger(__name__)
+_LOGGER = logging.getLogger(__name__)
 
 
 async def async_setup_entry(
-    hass: HomeAssistant, entry: TopbandConfigEntry, async_add_entities: AddConfigEntryEntitiesCallback
+    hass: HomeAssistant,
+    entry: TopbandConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
-    """Switch entry setup."""
-    hub = entry.runtime_data
+    """Set up Radiant Smart selects from a config entry."""
+    api = entry.runtime_data
 
     entities: list[RadiantSmartSelect] = []
+    for device in api.devices.values():
+        for spec, data_point in device.selects:
+            entities.append(RadiantSmartSelect(device, spec, data_point))
 
-    for device in hub.devices.values():
-        for select in device.select_data:
-            _LOGGER.debug("RADIANT: Setting up select: %s", select.name)
-            entities.append(RadiantSmartSelect(select))
-
-    _LOGGER.debug("RADIANT: Adding %d select entities", len(entities))
-
+    _LOGGER.debug("Adding %d select entities", len(entities))
     async_add_entities(entities)
 
-class RadiantSmartSelect(SelectEntity):
-    """Radiant Smart Sensor."""
 
-    _attr_should_poll = False
-    _attr_has_entity_name = True
+class RadiantSmartSelect(RadiantSmartEntity, SelectEntity):
+    """Representation of a Radiant Smart select."""
 
-    def __init__(self, data: SelectData) -> None:
-        """Initialize the sensor."""
-        self._data = data
-        self.entity_id = f"{SELECT_DOMAIN}.{self._data.data_point.device.name.lower()}_{self._data.name.lower().replace(' ', '_')}"
-        self._attr_unique_id = f"{self._data.data_point.device.name}_{self._data.name.lower().replace(" ", "_")}"
-        self._attr_name = self._data.name.replace("_", " ")
-        self._attr_icon = self._data.icon
-        self._attr_available = self._data.data_point.device.online
-        self._attr_options = list(data.options.values())
-        self._attr_current_option = data.options.get(data.data_point.get_value())
+    def __init__(
+        self, device, spec: SelectSpec, data_point: DataPoint
+    ) -> None:
+        """Initialize the select."""
+        self._device = device
+        self._spec = spec
+        self._data_point = data_point
+        self._attr_unique_id = f"{device.mac_address}_{data_point.index}"
+        self._attr_name = spec.name
+        self._attr_icon = spec.icon
+        self._attr_options = list(spec.options.values())
+        self._update_current_option()
 
     async def async_added_to_hass(self) -> None:
-        """Run when this entity has been added to HA."""
-        self._data.data_point.add_listener(self._handle_update)
+        """Register the data point listener when added to hass."""
+        self._data_point.add_listener(self._handle_update)
 
     async def async_will_remove_from_hass(self) -> None:
-        """Run when this entity will be removed from HA."""
-        self._data.data_point.remove_listener(self._handle_update)
+        """Remove the data point listener when removed from hass."""
+        self._data_point.remove_listener(self._handle_update)
 
-    @property
-    def device_info(self) -> DeviceInfo:
-        """Information about this entity/device."""
-        return {"identifiers": {(DOMAIN, self._data.data_point.device.product_id)}}
-
-    @property
-    def available(self) -> bool:
-        """Return True if device is available."""
-        return self._data.data_point.device.online
+    def _update_current_option(self) -> None:
+        """Compute the current option from the data point."""
+        self._attr_current_option = self._spec.options.get(
+            self._data_point.get_value()
+        )
 
     def _handle_update(self) -> None:
-        self._attr_current_option = self._data.options.get(self._data.data_point.get_value())
+        """Handle a data point update."""
+        self._update_current_option()
         self.schedule_update_ha_state()
 
-    def select_option(self, option: str) -> None:
-        """Turn the entity on."""
-        for v, m in self._data.options.items():
-            if option == m:
-                self._data.data_point.set_value(v)
+    async def async_select_option(self, option: str) -> None:
+        """Select an option."""
+        for value, label in self._spec.options.items():
+            if option == label:
+                await self._data_point.async_set_value(value)
+                return
+        _LOGGER.warning("Invalid option %s for %s", option, self._spec.name)
