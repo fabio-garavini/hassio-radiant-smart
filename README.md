@@ -147,7 +147,3 @@ logger:
   logs:
     custom_components.radiant_smart: debug
 ```
-
-## License
-
-GPL-3.0 — see [LICENSE](LICENSE).
