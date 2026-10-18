@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING
 
 from homeassistant.components.select import SelectEntity
 from homeassistant.core import HomeAssistant
@@ -12,6 +13,9 @@ from . import TopbandConfigEntry
 from .datapoints import SelectSpec
 from .entity import RadiantSmartEntity
 from .models import DataPoint
+
+if TYPE_CHECKING:
+    from .models import SmartDevice
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -37,7 +41,10 @@ class RadiantSmartSelect(RadiantSmartEntity, SelectEntity):
     """Representation of a Radiant Smart select."""
 
     def __init__(
-        self, device, spec: SelectSpec, data_point: DataPoint
+        self,
+        device: SmartDevice,
+        spec: SelectSpec,
+        data_point: DataPoint,
     ) -> None:
         """Initialize the select."""
         self._device = device
@@ -59,9 +66,7 @@ class RadiantSmartSelect(RadiantSmartEntity, SelectEntity):
 
     def _update_current_option(self) -> None:
         """Compute the current option from the data point."""
-        self._attr_current_option = self._spec.options.get(
-            self._data_point.get_value()
-        )
+        self._attr_current_option = self._spec.options.get(self._data_point.get_value())
 
     def _handle_update(self) -> None:
         """Handle a data point update."""

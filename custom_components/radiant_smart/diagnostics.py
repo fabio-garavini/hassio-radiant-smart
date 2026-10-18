@@ -39,6 +39,10 @@ async def async_get_config_entry_diagnostics(
             "version": entry.version,
             "data": async_redact_data(dict(entry.data), TO_REDACT_ENTRY),
         },
+        "mqtt": {
+            "connected": api.mqtt.connected,
+            "subscriptions": sorted(api.mqtt.subscriptions),
+        },
         "devices": [
             async_redact_data(
                 {

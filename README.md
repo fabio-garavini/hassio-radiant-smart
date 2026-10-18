@@ -29,7 +29,9 @@ real-time device state and sends commands over MQTT.
 3. Select the **home** that contains your devices.
 
 The integration registers one Home Assistant device per cloud device. All
-state updates arrive as push messages over MQTT, no polling involved.
+state updates arrive as push messages over MQTT, no polling involved. When
+the stored credentials stop working (e.g. after a password change) Home
+Assistant asks you to log in again via the standard re-authentication flow.
 
 ## Tested devices
 
@@ -37,6 +39,9 @@ state updates arrive as push messages over MQTT, no polling involved.
 | ------- | ----------------------------- | ------ |
 | TH311   | Boiler controller / gateway   | ✅      |
 | TH623   | Room thermostat               | ✅      |
+
+The entity mapping is regression-tested against a real device list capture
+(see `tests/fixtures/device_list.json`).
 
 ## Entities
 
@@ -57,9 +62,12 @@ Depending on the capabilities reported by each device, the integration creates:
 - **Sensors** — outdoor temperature, boiler CH temperature, heating target
   temperature, flow rate, water pressure, PWM power, fault code, WiFi signal,
   software version, boiler status (enum of the OpenTherm slave status
-  bitfield), plus diagnostic sensors for any unmapped data point.
+  bitfield), plus diagnostic sensors for any unmapped data point (disabled by
+  default, enable them from the device page).
 - **Binary sensors** — flame, radiators water flow, domestic water flow,
   thermostat connection, external temperature sensor, relay state.
+
+Weekly heating/DHW programs are complex binary blobs and are not exposed.
 
 ## Protocol (reverse engineering notes)
 
@@ -74,15 +82,18 @@ below documents how it works; raw captures live in a separate
   a JWT `token` used as the `authorization` header of all subsequent calls.
 - Device list: `POST .../tsmart-device-api/family/v2/device/list` with
   `familyId`. Each entry contains device metadata and the full
-  `pointDataMap` of current data point values.
+  `pointDataMap` of current data point values. Note that all values arrive
+  as **strings** and are decoded based on the point type.
 
 ### MQTT
 
 - Broker: `eu-tsmart-mqtt.topband-cloud.com:8883` (TLS).
 - Authentication: MQTT username `app/<JWT>`, password `<JWT>`.
 - Topics (per gateway): `<gatewayProductId>/<gatewayUid>/download/point/data`
-  for commands, `<gatewayProductId>/<gatewayUid>/upload/point/data` for
-  status updates, plus `<productId>/<gatewayUid>/business`.
+  for commands and `<gatewayProductId>/<gatewayUid>/upload/point/data` for
+  status updates. The app additionally subscribes `<productId>/<gatewayUid>/business`
+  and `<productId>/<gatewayUid>/upload/point/data` per device, so the
+  integration mirrors that subscription set.
 
 Command payload (cmd `99`):
 
@@ -90,7 +101,7 @@ Command payload (cmd `99`):
 {
   "common": {
     "productId": "<gateway product id>",
-    "serial": 123,
+    "serial": "123",
     "timestamp": 1769032788504,
     "uid": "<gateway uid>"
   },
@@ -105,7 +116,8 @@ Command payload (cmd `99`):
 }
 ```
 
-Status payload (cmd `98`) echoes the new data point values:
+Status payload (cmd `98`) echoes the new data point values and may update
+several points in one message:
 
 ```json
 {
@@ -114,7 +126,9 @@ Status payload (cmd `98`) echoes the new data point values:
     {
       "cmd": 98,
       "mac": "<device mac>",
-      "command": { "SYS_WORK_MODE": { "i": 8270, "t": 1, "v": 10 } }
+      "command": {
+        "SYS_WORK_MODE": { "i": 8270, "t": 1, "v": 10 }
+      }
     }
   ]
 }
@@ -147,3 +161,35 @@ logger:
   logs:
     custom_components.radiant_smart: debug
 ```
+
+The integration also supports downloading diagnostics for a config entry
+(**Settings → Devices & Services → Radiant Smart → Download diagnostics**),
+with credentials and device identifiers redacted.
+
+## Development
+
+The test suite uses [pytest-homeassistant-custom-component][plugin], the
+plugin that ships Home Assistant's own test utilities, so the tests run
+against a real Home Assistant instance: real config flow manager, real
+entity platforms and real config entry lifecycle. The Topband cloud is
+mocked at the HTTP level (`aioclient_mock`) and paho is replaced by
+recorders, so nothing touches the network. Entity mapping and push/command
+behavior are pinned against a real device list capture
+(`tests/fixtures/device_list.json`).
+
+```bash
+pip install -r requirements_test.txt
+pytest
+```
+
+Linting uses [ruff](https://docs.astral.sh/ruff/) with the configuration in
+`ruff.toml`:
+
+```bash
+ruff check custom_components/ tests/
+ruff format --check custom_components/ tests/
+```
+
+Both lint and tests run in CI (see `.github/workflows/lint.yaml`).
+
+[plugin]: https://pypi.org/project/pytest-homeassistant-custom-component/

@@ -1,0 +1,11 @@
+# Run the same lint checks as CI before committing:
+#   pip install pre-commit && pre-commit install
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.6
+    hooks:
+      - id: ruff
+        name: ruff check (auto-fix)
+        args: [--fix]
+      - id: ruff-format
+        name: ruff format

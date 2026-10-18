@@ -22,6 +22,10 @@ from .models import BoilerMode, DataPoint, SmartDevice
 
 _LOGGER = logging.getLogger(__name__)
 
+# Fallbacks used when the device has not reported its configured range yet
+DEFAULT_MIN_TEMP = 30.0
+DEFAULT_MAX_TEMP = 80.0
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -57,8 +61,8 @@ class RadiantSmartWaterHeater(RadiantSmartEntity, WaterHeaterEntity):
         self._attr_name = spec.name
         self._attr_icon = spec.icon
         self._attr_temperature_unit = UnitOfTemperature.CELSIUS
-        self._attr_min_temp = points["min_temp"].get_value()
-        self._attr_max_temp = points["max_temp"].get_value()
+        self._attr_min_temp = self._get_range_value("min_temp", DEFAULT_MIN_TEMP)
+        self._attr_max_temp = self._get_range_value("max_temp", DEFAULT_MAX_TEMP)
         self._attr_target_temperature_step = 1.0
         self._attr_operation_list = [STATE_OFF, STATE_GAS]
         self._attr_supported_features = (
@@ -67,6 +71,11 @@ class RadiantSmartWaterHeater(RadiantSmartEntity, WaterHeaterEntity):
             | WaterHeaterEntityFeature.OPERATION_MODE
         )
         self._update_attrs()
+
+    def _get_range_value(self, key: str, default: float) -> float:
+        """Return a configured temperature limit with a safe fallback."""
+        value = self._points[key].get_value()
+        return value if isinstance(value, (int, float)) and value > 0 else default
 
     async def async_added_to_hass(self) -> None:
         """Register data point listeners when added to hass."""
@@ -80,18 +89,17 @@ class RadiantSmartWaterHeater(RadiantSmartEntity, WaterHeaterEntity):
 
     def _update_attrs(self) -> None:
         """Update state attributes from the data points."""
-        self._attr_current_temperature = self._points[
-            "current_temp"
-        ].get_value()
-        self._attr_target_temperature = self._points[
-            "target_temp"
-        ].get_value()
+        self._attr_current_temperature = self._points["current_temp"].get_value()
+        self._attr_target_temperature = self._points["target_temp"].get_value()
         self._attr_current_operation = self._parse_current_operation()
 
     def _parse_current_operation(self) -> str:
         """Return the current operation based on the boiler work mode."""
         mode = self._points["work_mode"].get_value()
-        if mode == BoilerMode.HEATING_SANITARY or mode == self._spec.work_type:
+        if mode is not None and mode in (
+            BoilerMode.HEATING_SANITARY,
+            self._spec.work_type,
+        ):
             return STATE_GAS
         return STATE_OFF
 
@@ -111,33 +119,23 @@ class RadiantSmartWaterHeater(RadiantSmartEntity, WaterHeaterEntity):
         """Turn the water heater on."""
         mode = self._points["work_mode"].get_value()
         if mode == BoilerMode.STANDBY:
-            await self._points["work_mode"].async_set_value(
-                self._spec.work_type
-            )
+            await self._points["work_mode"].async_set_value(self._spec.work_type)
         elif mode in (BoilerMode.HEATING_SANITARY, self._spec.work_type):
             return
         else:
-            await self._points["work_mode"].async_set_value(
-                BoilerMode.HEATING_SANITARY
-            )
+            await self._points["work_mode"].async_set_value(BoilerMode.HEATING_SANITARY)
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn the water heater off."""
         mode = self._points["work_mode"].get_value()
         if mode == self._spec.work_type:
-            await self._points["work_mode"].async_set_value(
-                BoilerMode.STANDBY
-            )
+            await self._points["work_mode"].async_set_value(BoilerMode.STANDBY)
         elif mode == BoilerMode.HEATING_SANITARY:
             # Switch to the other circuit only, keeping it running
             if self._spec.work_type == BoilerMode.SANITARY:
-                await self._points["work_mode"].async_set_value(
-                    BoilerMode.HEATING
-                )
+                await self._points["work_mode"].async_set_value(BoilerMode.HEATING)
             else:
-                await self._points["work_mode"].async_set_value(
-                    BoilerMode.SANITARY
-                )
+                await self._points["work_mode"].async_set_value(BoilerMode.SANITARY)
 
     async def async_set_operation_mode(self, operation_mode: str) -> None:
         """Set the operation mode."""

@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from typing import Any
 
 import voluptuous as vol
-
-from homeassistant.config_entries import ConfigEntry, ConfigFlow, ConfigFlowResult
+from homeassistant.config_entries import (
+    ConfigFlow,
+    ConfigFlowResult,
+)
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.selector import (
@@ -15,9 +18,16 @@ from homeassistant.helpers.selector import (
     SelectSelector,
     SelectSelectorConfig,
     SelectSelectorMode,
+    TextSelector,
+    TextSelectorConfig,
+    TextSelectorType,
 )
 
-from .api import TopbandAuthenticationError, TopbandApiClientError, TopbandCloudApi
+from .api import (
+    TopbandApiClientError,
+    TopbandAuthenticationError,
+    TopbandCloudApi,
+)
 from .const import CONF_COMPANY, CONF_HOME, CONF_TOKEN_DATA, DOMAIN, MANUFACTURERS
 
 _LOGGER = logging.getLogger(__name__)
@@ -33,15 +43,18 @@ STEP_USER_SCHEMA = vol.Schema(
                 mode=SelectSelectorMode.DROPDOWN,
             )
         ),
-        vol.Required(CONF_EMAIL): str,
-        vol.Required(CONF_PASSWORD): str,
-    }
-)
-
-STEP_REAUTH_SCHEMA = vol.Schema(
-    {
-        vol.Required(CONF_EMAIL): str,
-        vol.Required(CONF_PASSWORD): str,
+        vol.Required(CONF_EMAIL): TextSelector(
+            TextSelectorConfig(
+                type=TextSelectorType.EMAIL,
+                autocomplete="email",
+            )
+        ),
+        vol.Required(CONF_PASSWORD): TextSelector(
+            TextSelectorConfig(
+                type=TextSelectorType.PASSWORD,
+                autocomplete="current-password",
+            )
+        ),
     }
 )
 
@@ -59,19 +72,40 @@ class RadiantSmartConfigFlow(ConfigFlow, domain=DOMAIN):
         self._token_data: dict[str, Any] | None = None
         self._homes: list[dict[str, Any]] = []
 
-    async def _async_authenticate(
+    async def _async_login(
         self, company_id: str, email: str, password: str
-    ) -> list[dict[str, Any]]:
-        """Authenticate and return the list of homes."""
+    ) -> dict[str, Any]:
+        """Log in against the cloud API and return the fresh token data.
+
+        Raises TopbandAuthenticationError for bad credentials and
+        TopbandApiClientError for connection problems.
+        """
         client = TopbandCloudApi(
             self.hass,
             async_get_clientsession(self.hass),
-            email,
-            password,
-            company_id,
+            {
+                CONF_COMPANY: company_id,
+                CONF_EMAIL: email,
+                CONF_PASSWORD: password,
+            },
         )
-        self._token_data = await client.async_authenticate()
-        return await client.async_get_family_list()
+        return await client.async_authenticate()
+
+    def _home_select_schema(self) -> vol.Schema:
+        """Build the home selector schema from the fetched homes."""
+        return vol.Schema(
+            {
+                vol.Required(CONF_HOME): SelectSelector(
+                    SelectSelectorConfig(
+                        options=[
+                            SelectOptionDict(value=home["id"], label=home["familyName"])
+                            for home in self._homes
+                        ],
+                        mode=SelectSelectorMode.DROPDOWN,
+                    )
+                )
+            }
+        )
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
@@ -83,18 +117,33 @@ class RadiantSmartConfigFlow(ConfigFlow, domain=DOMAIN):
             email = user_input[CONF_EMAIL]
             password = user_input[CONF_PASSWORD]
             try:
-                self._homes = await self._async_authenticate(
-                    company_id, email, password
+                self._token_data = await self._async_login(company_id, email, password)
+                client = TopbandCloudApi(
+                    self.hass,
+                    async_get_clientsession(self.hass),
+                    {
+                        CONF_COMPANY: company_id,
+                        CONF_EMAIL: email,
+                        CONF_PASSWORD: password,
+                        CONF_TOKEN_DATA: self._token_data,
+                    },
                 )
+                self._homes = await client.async_get_family_list()
             except TopbandAuthenticationError:
                 errors["base"] = "invalid_auth"
             except TopbandApiClientError:
                 errors["base"] = "cannot_connect"
+            except Exception:
+                _LOGGER.exception("Unexpected error during login")
+                errors["base"] = "unknown"
             else:
-                self._company_id = company_id
-                self._email = email
-                self._password = password
-                return await self.async_step_home()
+                if not self._homes:
+                    errors["base"] = "no_homes"
+                else:
+                    self._company_id = company_id
+                    self._email = email
+                    self._password = password
+                    return await self.async_step_home()
 
         return self.async_show_form(
             step_id="user", data_schema=STEP_USER_SCHEMA, errors=errors
@@ -104,43 +153,38 @@ class RadiantSmartConfigFlow(ConfigFlow, domain=DOMAIN):
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Handle the home selection."""
-        errors: dict[str, str] = {}
         if user_input is not None:
+            home_id = str(user_input[CONF_HOME])
             # One entry per home, prevents adding the same home twice
-            await self.async_set_unique_id(str(user_input[CONF_HOME]))
+            await self.async_set_unique_id(home_id)
             self._abort_if_unique_id_configured()
+            home_name = next(
+                (
+                    home["familyName"]
+                    for home in self._homes
+                    if str(home.get("id")) == home_id
+                ),
+                "Radiant Smart",
+            )
             return self.async_create_entry(
-                title="Radiant Smart",
+                title=f"Radiant Smart ({home_name})",
                 data={
                     CONF_COMPANY: self._company_id,
                     CONF_EMAIL: self._email,
                     CONF_PASSWORD: self._password,
-                    CONF_HOME: user_input[CONF_HOME],
+                    CONF_HOME: home_id,
                     CONF_TOKEN_DATA: self._token_data,
                 },
             )
 
         return self.async_show_form(
             step_id="home",
-            data_schema=vol.Schema(
-                {
-                    vol.Required(CONF_HOME): SelectSelector(
-                        SelectSelectorConfig(
-                            options=[
-                                SelectOptionDict(
-                                    value=home["id"], label=home["familyName"]
-                                )
-                                for home in self._homes
-                            ],
-                            mode=SelectSelectorMode.DROPDOWN,
-                        )
-                    )
-                }
-            ),
-            errors=errors,
+            data_schema=self._home_select_schema(),
         )
 
-    async def async_step_reauth(self, entry_data) -> ConfigFlowResult:
+    async def async_step_reauth(
+        self, entry_data: Mapping[str, Any]
+    ) -> ConfigFlowResult:
         """Handle a reauthentication flow initiation."""
         return await self.async_step_reauth_confirm()
 
@@ -149,21 +193,22 @@ class RadiantSmartConfigFlow(ConfigFlow, domain=DOMAIN):
     ) -> ConfigFlowResult:
         """Handle the reauthentication form."""
         errors: dict[str, str] = {}
-        entry_id = self.context.get("entry_id")
-        entry = (
-            self.hass.config_entries.async_get_entry(entry_id)
-            if entry_id
-            else None
-        )
-        assert entry is not None
+        entry = self._get_reauth_entry()
         # Bind the flow to the home of the entry being reauthenticated
         await self.async_set_unique_id(
             str(entry.data[CONF_HOME]), raise_on_progress=False
         )
 
+        schema = vol.Schema(
+            {
+                vol.Required(CONF_EMAIL, default=entry.data[CONF_EMAIL]): str,
+                vol.Required(CONF_PASSWORD): str,
+            }
+        )
+
         if user_input is not None:
             try:
-                await self._async_authenticate(
+                self._token_data = await self._async_login(
                     entry.data[CONF_COMPANY],
                     user_input[CONF_EMAIL],
                     user_input[CONF_PASSWORD],
@@ -172,10 +217,15 @@ class RadiantSmartConfigFlow(ConfigFlow, domain=DOMAIN):
                 errors["base"] = "invalid_auth"
             except TopbandApiClientError:
                 errors["base"] = "cannot_connect"
+            except Exception:
+                _LOGGER.exception("Unexpected error during reauth")
+                errors["base"] = "unknown"
             else:
+                # data_updates merges into the existing entry data, keeping
+                # the company, home selection and unique id intact.
                 return self.async_update_reload_and_abort(
                     entry,
-                    data={
+                    data_updates={
                         CONF_EMAIL: user_input[CONF_EMAIL],
                         CONF_PASSWORD: user_input[CONF_PASSWORD],
                         CONF_TOKEN_DATA: self._token_data,
@@ -184,6 +234,6 @@ class RadiantSmartConfigFlow(ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id="reauth_confirm",
-            data_schema=STEP_REAUTH_SCHEMA,
+            data_schema=schema,
             errors=errors,
         )

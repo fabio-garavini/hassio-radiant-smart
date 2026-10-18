@@ -1,6 +1,10 @@
 # Python
 __pycache__/
 
+# Tool caches
+.pytest_cache/
+.ruff_cache/
+
 # Virtual environments
 .venv/
 venv/

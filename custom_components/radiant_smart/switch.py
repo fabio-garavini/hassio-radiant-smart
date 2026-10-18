@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.core import HomeAssistant
@@ -13,6 +13,9 @@ from . import TopbandConfigEntry
 from .datapoints import SwitchSpec
 from .entity import RadiantSmartEntity
 from .models import DataPoint
+
+if TYPE_CHECKING:
+    from .models import SmartDevice
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -38,7 +41,10 @@ class RadiantSmartSwitch(RadiantSmartEntity, SwitchEntity):
     """Representation of a Radiant Smart switch."""
 
     def __init__(
-        self, device, spec: SwitchSpec, data_point: DataPoint
+        self,
+        device: SmartDevice,
+        spec: SwitchSpec,
+        data_point: DataPoint,
     ) -> None:
         """Initialize the switch."""
         self._device = device

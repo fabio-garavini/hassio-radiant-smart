@@ -19,3 +19,7 @@ USER_API_BASE_URL = "https://eu-tsmart-user-api.topband-cloud.com"
 DEVICE_API_BASE_URL = "https://eu-tsmart-device-api.topband-cloud.com"
 
 REQUEST_TIMEOUT = 10
+
+# MQTT payload command identifiers (cmd field)
+CMD_POINT_UPDATE = 98  # device -> HA, echoes data point values
+CMD_POINT_COMMAND = 99  # HA -> device, sets data point values

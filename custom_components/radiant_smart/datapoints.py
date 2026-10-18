@@ -54,13 +54,6 @@ TEMPERATURE_UNIT = UnitOfTemperature.CELSIUS
 # ---------------------------------------------------------------------------
 
 
-def _get(data_points: dict[str, DataPoint], key: str) -> DataPoint:
-    """Get a data point that is guaranteed to exist."""
-    point = data_points.get(key)
-    assert point is not None, f"Data point {key} missing"
-    return point
-
-
 def _ot_slave_status_options() -> dict[int, str]:
     """Build the readable names for the OT slave status bitfield."""
     status = BoilerFunction
@@ -225,10 +218,11 @@ NUMBERS = {
         name="Climate Curve",
         icon="mdi:chart-bell-curve-cumulative",
         mode=NumberMode.BOX,
-        unit="Kd",
+        # The device reports this as a plain integer (t=1); the observed
+        # value of 54 did not fit the previous 0-30 range.
         min_value=0.0,
-        max_value=30.0,
-        step=5.0,
+        max_value=100.0,
+        step=1.0,
     ),
 }
 
@@ -438,9 +432,7 @@ BINARY_SENSOR_SPECS: dict[str, BinarySensorSpec] = {
     ),
 }
 
-BINARY_SENSOR_SUFFIX_SPECS: tuple[
-    tuple[tuple[str, ...], BinarySensorSpec], ...
-] = (
+BINARY_SENSOR_SUFFIX_SPECS: tuple[tuple[tuple[str, ...], BinarySensorSpec], ...] = (
     (
         ("_RELAY_STATE",),
         BinarySensorSpec(
@@ -466,6 +458,30 @@ BINARY_SENSOR_SUFFIX_SPECS: tuple[
 # Builders
 # ---------------------------------------------------------------------------
 
+# All data point names that are explicitly mapped to an entity somewhere.
+# Prefix filtering (IGNORED_PREFIXES) must not swallow these, e.g. the
+# domestic water heating program enable flag shares its prefix with the
+# unsupported weekly program points.
+_KNOWN_POINTS = frozenset(
+    set(SELECTS)
+    | set(SWITCHES)
+    | set(NUMBERS)
+    | set(BUTTONS)
+    | set(SENSOR_SPECS)
+    | set(BINARY_SENSOR_SPECS)
+    | {key for spec in WATER_HEATERS for key in spec.required_keys}
+    | {key for spec in CLIMATES for key in spec.required_keys}
+)
+
+
+def _expose_point(name: str) -> bool:
+    """Return whether a data point may be exposed as an entity."""
+    if name in IGNORED_POINTS:
+        return False
+    # Only drop unmapped points with an ignored prefix; explicitly mapped
+    # points sharing the prefix (e.g. the DHW program enable flag) survive.
+    return not name.startswith(IGNORED_PREFIXES) or name in _KNOWN_POINTS
+
 
 def build_entity_configs(device: SmartDevice) -> None:
     """Map the device data points to entity configurations.
@@ -475,9 +491,7 @@ def build_entity_configs(device: SmartDevice) -> None:
     (exposed as diagnostic sensors).
     """
     data_points = {
-        name: dp
-        for name, dp in device.data_points.items()
-        if name not in IGNORED_POINTS and not name.startswith(IGNORED_PREFIXES)
+        name: dp for name, dp in device.data_points.items() if _expose_point(name)
     }
 
     device.water_heaters = _build_water_heaters(data_points)
@@ -590,11 +604,13 @@ def _build_binary_sensors(
     for key, point in list(data_points.items()):
         spec = BINARY_SENSOR_SPECS.get(key)
         if spec is not None:
-            configs.append((spec, data_points.pop(key)))
+            del data_points[key]
+            configs.append((spec, point))
             continue
         for suffixes, suffix_spec in BINARY_SENSOR_SUFFIX_SPECS:
             if key.endswith(suffixes):
-                configs.append((suffix_spec, data_points.pop(key)))
+                del data_points[key]
+                configs.append((suffix_spec, point))
                 break
 
     return configs
@@ -609,11 +625,13 @@ def _build_sensors(
     for key, point in list(data_points.items()):
         spec = SENSOR_SPECS.get(key)
         if spec is not None:
-            configs.append((spec, data_points.pop(key)))
+            del data_points[key]
+            configs.append((spec, point))
             continue
         for suffixes, suffix_spec in SENSOR_SUFFIX_SPECS:
             if key.endswith(suffixes):
-                configs.append((suffix_spec, data_points.pop(key)))
+                del data_points[key]
+                configs.append((suffix_spec, point))
                 break
 
     return configs

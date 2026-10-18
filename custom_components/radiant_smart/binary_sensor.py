@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING
 
 from homeassistant.components.binary_sensor import BinarySensorEntity
 from homeassistant.core import HomeAssistant
@@ -12,6 +13,9 @@ from . import TopbandConfigEntry
 from .datapoints import BinarySensorSpec
 from .entity import RadiantSmartEntity
 from .models import DataPoint
+
+if TYPE_CHECKING:
+    from .models import SmartDevice
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -37,7 +41,10 @@ class RadiantSmartBinarySensor(RadiantSmartEntity, BinarySensorEntity):
     """Representation of a Radiant Smart binary sensor."""
 
     def __init__(
-        self, device, spec: BinarySensorSpec, data_point: DataPoint
+        self,
+        device: SmartDevice,
+        spec: BinarySensorSpec,
+        data_point: DataPoint,
     ) -> None:
         """Initialize the binary sensor."""
         self._device = device
@@ -61,12 +68,16 @@ class RadiantSmartBinarySensor(RadiantSmartEntity, BinarySensorEntity):
     def _update_is_on(self) -> None:
         """Compute the on state from the data point."""
         value = self._data_point.get_value()
-        if self._spec.bit_mask is not None:
+        if value is None:
+            self._attr_is_on = None
+        elif self._spec.bit_mask is not None:
             self._attr_is_on = bool(value & self._spec.bit_mask)
-            return
-        options = self._spec.options
-        if options is not None and value in options:
-            self._attr_is_on = bool(options[value])
+        elif (options := self._spec.options) is not None:
+            if value in options:
+                self._attr_is_on = bool(options[value])
+            else:
+                # A value outside the known mapping is reported as unknown
+                self._attr_is_on = None
         else:
             self._attr_is_on = bool(value)
 

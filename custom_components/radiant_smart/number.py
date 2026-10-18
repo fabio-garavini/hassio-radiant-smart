@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING
 
 from homeassistant.components.number import NumberEntity
 from homeassistant.core import HomeAssistant
@@ -12,6 +13,9 @@ from . import TopbandConfigEntry
 from .datapoints import NumberSpec
 from .entity import RadiantSmartEntity
 from .models import DataPoint
+
+if TYPE_CHECKING:
+    from .models import SmartDevice
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -37,7 +41,10 @@ class RadiantSmartNumber(RadiantSmartEntity, NumberEntity):
     """Representation of a Radiant Smart number."""
 
     def __init__(
-        self, device, spec: NumberSpec, data_point: DataPoint
+        self,
+        device: SmartDevice,
+        spec: NumberSpec,
+        data_point: DataPoint,
     ) -> None:
         """Initialize the number."""
         self._device = device

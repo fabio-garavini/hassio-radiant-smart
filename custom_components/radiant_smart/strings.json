@@ -6,7 +6,7 @@
         "description": "Log in with your Radiant Smart app credentials.",
         "data": {
           "company_id": "Brand",
-          "email": "Email",
+          "email": "[%key:common::config_flow::data::email%]",
           "password": "[%key:common::config_flow::data::password%]"
         }
       },
@@ -29,6 +29,7 @@
     "error": {
       "cannot_connect": "[%key:common::config_flow::error::cannot_connect%]",
       "invalid_auth": "[%key:common::config_flow::error::invalid_auth%]",
+      "no_homes": "No homes are associated with this account.",
       "unknown": "[%key:common::config_flow::error::unknown%]"
     },
     "abort": {

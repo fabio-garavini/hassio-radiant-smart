@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING
 
 from homeassistant.components.sensor import SensorDeviceClass, SensorEntity
 from homeassistant.const import EntityCategory
@@ -13,6 +14,9 @@ from . import TopbandConfigEntry
 from .datapoints import SensorSpec
 from .entity import RadiantSmartEntity
 from .models import DataPoint
+
+if TYPE_CHECKING:
+    from .models import SmartDevice
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -30,9 +34,7 @@ async def async_setup_entry(
         for spec, data_point in device.sensors:
             entities.append(RadiantSmartSensor(device, spec, data_point))
         for data_point in device.unknown_points.values():
-            _LOGGER.debug(
-                "Exposing unknown data point: %s", data_point.name
-            )
+            _LOGGER.debug("Exposing unknown data point: %s", data_point.name)
             entities.append(
                 RadiantSmartSensor(device, _unknown_spec(data_point), data_point)
             )
@@ -59,7 +61,10 @@ class RadiantSmartSensor(RadiantSmartEntity, SensorEntity):
     """Representation of a Radiant Smart sensor."""
 
     def __init__(
-        self, device, spec: SensorSpec, data_point: DataPoint
+        self,
+        device: SmartDevice,
+        spec: SensorSpec,
+        data_point: DataPoint,
     ) -> None:
         """Initialize the sensor."""
         self._device = device
@@ -73,9 +78,7 @@ class RadiantSmartSensor(RadiantSmartEntity, SensorEntity):
         self._attr_native_unit_of_measurement = spec.unit
         self._attr_entity_category = spec.entity_category
         self._attr_entity_registry_enabled_default = spec.enabled_default
-        self._attr_suggested_display_precision = (
-            spec.suggested_display_precision
-        )
+        self._attr_suggested_display_precision = spec.suggested_display_precision
         if spec.options is not None:
             self._attr_options = list(spec.options.values())
         self._update_native_value()
@@ -92,17 +95,16 @@ class RadiantSmartSensor(RadiantSmartEntity, SensorEntity):
         """Compute the native value from the data point."""
         value = self._data_point.get_value()
         options = self._spec.options
-        if options is not None:
-            if value in options:
-                self._attr_native_value = options[value]
-            elif self._spec.device_class == SensorDeviceClass.ENUM:
-                # Enum sensors must only report values from their options
-                _LOGGER.warning(
-                    "Unknown value %s for enum sensor %s", value, self._spec.name
-                )
-                self._attr_native_value = None
-            else:
-                self._attr_native_value = value
+        if options is None:
+            self._attr_native_value = value
+        elif value in options:
+            self._attr_native_value = options[value]
+        elif self._spec.device_class == SensorDeviceClass.ENUM:
+            # Enum sensors must only report values from their options
+            _LOGGER.warning(
+                "Unknown value %s for enum sensor %s", value, self._spec.name
+            )
+            self._attr_native_value = None
         else:
             self._attr_native_value = value
 

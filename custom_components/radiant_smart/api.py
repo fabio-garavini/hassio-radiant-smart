@@ -5,33 +5,33 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
-import socket
-from typing import Any, cast
+from collections.abc import Mapping
+from typing import TYPE_CHECKING, Any
 
 import aiohttp
+from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
+from homeassistant.core import HomeAssistant
 from yarl import URL
 
-from homeassistant.core import HomeAssistant
-
 from .const import (
+    CONF_COMPANY,
+    CONF_HOME,
+    CONF_TOKEN_DATA,
     DEVICE_API_BASE_URL,
     REQUEST_TIMEOUT,
     USER_API_BASE_URL,
 )
 from .datapoints import build_entity_configs
-from .mqtt import TopbandMqttClient
 from .models import SmartDevice
+from .mqtt import TopbandMqttClient, TopbandMqttReauthRequired
+
+if TYPE_CHECKING:
+    from . import TopbandConfigEntry
 
 _LOGGER = logging.getLogger(__name__)
 
 TOKEN_URL = str(URL(USER_API_BASE_URL) / "tsmart-user-api/appLogin/v2/login")
-REFRESH_TOKEN_URL = str(
-    URL(USER_API_BASE_URL) / "tsmart-user-api/appLogin/v2/refreshAccessToken"
-)
 FAMILY_LIST_URL = str(URL(USER_API_BASE_URL) / "tsmart-user-api/family/list")
-SELF_INFO_URL = str(
-    URL(USER_API_BASE_URL) / "tsmart-user-api/account/v2/getSelfInfo"
-)
 DEVICE_LIST_URL = str(
     URL(DEVICE_API_BASE_URL) / "tsmart-device-api/family/v2/device/list"
 )
@@ -52,20 +52,27 @@ class TopbandCloudApi:
         self,
         hass: HomeAssistant,
         session: aiohttp.ClientSession,
-        email: str,
-        password: str,
-        company_id: str,
-        home_id: str | None = None,
-        token_data: dict[str, Any] | None = None,
+        config: Mapping[str, Any],
+        entry: TopbandConfigEntry | None = None,
     ) -> None:
-        """Initialize the client."""
+        """Initialize the client.
+
+        `config` holds the credentials and home selection (the config entry
+        data or an equivalent dict from the config flow); `entry` is passed
+        when the client belongs to a config entry so fresh tokens can be
+        persisted and a reauth flow can be started when needed.
+        """
         self._hass = hass
         self._session = session
-        self._email = email
-        self._password = password
-        self._company_id = company_id
-        self._home_id = home_id
-        self._token_data = token_data or {}
+        self._email = config[CONF_EMAIL]
+        self._password = config[CONF_PASSWORD]
+        self._company_id = config[CONF_COMPANY]
+        self._home_id = config.get(CONF_HOME)
+        # Never mutate the config entry data in place; persist through
+        # async_update_entry instead (see _async_persist_tokens).
+        self._token_data: dict[str, Any] = dict(config.get(CONF_TOKEN_DATA) or {})
+        self._entry = entry
+        self._reauth_started = False
         self.devices: dict[str, SmartDevice] = {}
         self.mqtt = TopbandMqttClient(
             hass,
@@ -86,51 +93,52 @@ class TopbandCloudApi:
     async def async_authenticate(self) -> dict[str, Any]:
         """Authenticate with the Topband cloud API.
 
-        Raises TopbandAuthenticationError on failure.
+        Raises TopbandAuthenticationError for rejected credentials and
+        TopbandApiClientError for connection problems, so setup can
+        distinguish a reauth prompt from a retry.
         """
-        try:
-            await self._async_get_token()
-        except TopbandApiClientError as err:
-            raise TopbandAuthenticationError(
-                f"Authentication failed: {err}"
-            ) from err
+        await self._async_login()
         return self._token_data
 
     async def async_reauthenticate(self) -> None:
-        """Re-authenticate to obtain a fresh token (used by MQTT reconnect)."""
-        _LOGGER.debug("Re-authenticating with Topband cloud API")
-        await self._async_get_token()
+        """Re-authenticate to obtain a fresh token (used by MQTT reconnect).
+
+        Raises TopbandMqttReauthRequired when the stored credentials are no
+        longer valid, so the MQTT client stops retrying and the user is asked
+        to re-authenticate instead.
+        """
+        try:
+            await self._async_login()
+        except TopbandAuthenticationError as err:
+            _LOGGER.error("Re-authentication with the Topband cloud failed: %s", err)
+            self._start_reauth_flow()
+            raise TopbandMqttReauthRequired(str(err)) from err
+        self._reauth_started = False
 
     async def async_get_family_list(self) -> list[dict[str, Any]]:
         """Get the list of homes (families) from the cloud API."""
-        response = cast(
-            list[dict[str, Any]],
-            await self._async_request(
-                "post", FAMILY_LIST_URL, data={}, is_login_required=True
-            ),
+        response = await self._async_request(
+            "post", FAMILY_LIST_URL, data={}, is_login_required=True
         )
+        if not isinstance(response, list):
+            raise TopbandApiClientError("Unexpected response fetching family list")
         return response
-
-    async def async_get_self_info(self) -> dict[str, Any]:
-        """Get user info from the cloud API."""
-        return await self._async_request(
-            "post", SELF_INFO_URL, is_login_required=True
-        )
 
     async def async_get_devices(self) -> dict[str, SmartDevice]:
         """Get all devices in the configured home."""
         rows = await self._async_request(
             "post", DEVICE_LIST_URL, data={"familyId": self._home_id}
         )
-        rows = rows.get("rows", [])
+        if not isinstance(rows, dict):
+            raise TopbandApiClientError("Unexpected response fetching device list")
 
         devices: dict[str, SmartDevice] = {}
-        for source in rows:
+        for source in rows.get("rows") or []:
+            if not isinstance(source, dict):
+                _LOGGER.warning("Skipping malformed device entry: %s", source)
+                continue
             device = SmartDevice.from_api_response(self, source)
-            if not device.mac_address:
-                _LOGGER.warning(
-                    "Skipping device without MAC address: %s", device.name
-                )
+            if device is None:
                 continue
             build_entity_configs(device)
             devices[device.mac_address.upper()] = device
@@ -145,24 +153,27 @@ class TopbandCloudApi:
         await self.mqtt.async_send_command(device, command)
 
     async def async_subscribe_topics(self) -> None:
-        """Subscribe to MQTT topics for all devices."""
-        subscribed: set[str] = set()
+        """Subscribe to MQTT topics for all devices.
+
+        The app subscribes the upload topic under the gateway product id
+        and, per device, also under the device product id; echoes for all
+        devices observed so far arrive on the gateway upload topic.
+        """
         for device in self.devices.values():
-            topics = (
-                f"{device.product_id}/{device.gateway.uid}/business",
-                f"{device.gateway.product_id}/{device.gateway.uid}/upload/point/data",
+            self.mqtt.subscribe(f"{device.product_id}/{device.gateway.uid}/business")
+            self.mqtt.subscribe(
+                f"{device.product_id}/{device.gateway.uid}/upload/point/data"
             )
-            for topic in topics:
-                if topic not in subscribed:
-                    subscribed.add(topic)
-                    self.mqtt.subscribe(topic)
+            self.mqtt.subscribe(
+                f"{device.gateway.product_id}/{device.gateway.uid}/upload/point/data"
+            )
 
     async def async_shutdown(self) -> None:
         """Disconnect MQTT and release resources."""
         await self.mqtt.async_disconnect()
 
-    async def _async_get_token(self) -> None:
-        """Obtain a new JWT token using email and password."""
+    async def _async_login(self) -> None:
+        """Log in with email and password and store the fresh tokens."""
         response = await self._async_request(
             "post",
             TOKEN_URL,
@@ -174,20 +185,41 @@ class TopbandCloudApi:
             },
             is_login_required=False,
         )
-        self._token_data["token"] = response.get("token")
-        self._token_data["refresh_token"] = response.get("refresh_token")
+        if not isinstance(response, dict):
+            raise TopbandApiClientError("Unexpected login response")
+        token = response.get("token")
+        if not isinstance(token, str) or not token:
+            raise TopbandAuthenticationError("Login response did not include a token")
+        self._token_data = {
+            "token": token,
+            "refresh_token": response.get("refresh_token"),
+        }
+        self._async_persist_tokens()
         _LOGGER.debug("Login successful")
 
-    async def _async_refresh_token(self) -> None:
-        """Obtain a new JWT token using the refresh token."""
-        response = await self._async_request(
-            "get",
-            REFRESH_TOKEN_URL,
-            headers={"authorization": self._token_data.get("refresh_token", "")},
-            is_login_required=False,
+    def _async_persist_tokens(self) -> None:
+        """Persist fresh tokens to the config entry.
+
+        The cloud may rotate refresh tokens on every login; storing them
+        keeps the entry usable across restarts without a fresh login.
+        Runs on the event loop only.
+        """
+        if self._entry is None:
+            return
+        entry_data = self._entry.data
+        if self._token_data == entry_data.get(CONF_TOKEN_DATA):
+            return
+        self._hass.config_entries.async_update_entry(
+            self._entry,
+            data={**entry_data, CONF_TOKEN_DATA: dict(self._token_data)},
         )
-        self._token_data["token"] = response.get("token")
-        self._token_data["refresh_token"] = response.get("refresh_token")
+
+    def _start_reauth_flow(self) -> None:
+        """Start the reauth flow for the config entry, at most once."""
+        if self._entry is None or self._reauth_started:
+            return
+        self._reauth_started = True
+        self._entry.async_start_reauth(self._hass)
 
     async def _async_request(
         self,
@@ -215,7 +247,6 @@ class TopbandCloudApi:
                     json=data if data is not None else {},
                     ssl=True,
                 )
-                response.raise_for_status()
                 payload = await response.json()
         except TimeoutError as err:
             _LOGGER.error("Timeout requesting %s", url)
@@ -226,7 +257,7 @@ class TopbandCloudApi:
                     # Token may have expired: re-authenticate and retry once
                     _LOGGER.debug("Session expired for %s, re-authenticating", url)
                     try:
-                        await self._async_get_token()
+                        await self._async_login()
                     except TopbandApiClientError as auth_err:
                         raise TopbandAuthenticationError(
                             f"Re-authentication failed: {auth_err}"
@@ -249,7 +280,7 @@ class TopbandCloudApi:
                 err.message,
             )
             raise TopbandApiClientError(f"Request to {url} failed") from err
-        except (aiohttp.ClientError, socket.gaierror) as err:
+        except (aiohttp.ClientError, OSError) as err:
             _LOGGER.error("Error requesting %s: %s", url, err)
             raise TopbandApiClientError(f"Error requesting {url}") from err
 

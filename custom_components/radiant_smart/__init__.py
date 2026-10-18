@@ -5,14 +5,18 @@ from __future__ import annotations
 import logging
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_EMAIL, CONF_PASSWORD, Platform
+from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
-from .api import TopbandAuthenticationError, TopbandCloudApi
-from .const import CONF_COMPANY, CONF_HOME, CONF_TOKEN_DATA, DOMAIN, MANUFACTURER
+from .api import (
+    TopbandApiClientError,
+    TopbandAuthenticationError,
+    TopbandCloudApi,
+)
+from .const import DOMAIN, MANUFACTURER
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -52,11 +56,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: TopbandConfigEntry) -> b
     api = TopbandCloudApi(
         hass,
         async_get_clientsession(hass),
-        entry.data[CONF_EMAIL],
-        entry.data[CONF_PASSWORD],
-        entry.data[CONF_COMPANY],
-        entry.data[CONF_HOME],
-        entry.data[CONF_TOKEN_DATA],
+        entry.data,
+        entry,
     )
     entry.runtime_data = api
 
@@ -64,6 +65,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: TopbandConfigEntry) -> b
         await api.async_authenticate()
     except TopbandAuthenticationError as err:
         raise ConfigEntryAuthFailed(err) from err
+    except TopbandApiClientError as err:
+        # Connection problems are retried later instead of prompting for
+        # re-authentication.
+        raise ConfigEntryNotReady(f"Failed to connect to Topband cloud: {err}") from err
 
     try:
         await api.mqtt.async_connect()
@@ -77,7 +82,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: TopbandConfigEntry) -> b
     for device in devices.values():
         device_registry.async_get_or_create(
             config_entry_id=entry.entry_id,
-            connections={(dr.CONNECTION_NETWORK_MAC, device.mac_address)},
+            connections={(dr.CONNECTION_NETWORK_MAC, device.mac_address.upper())},
             identifiers={(DOMAIN, device.mac_address.upper())},
             manufacturer=MANUFACTURER,
             name=device.name,

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import IntEnum, IntFlag
 from typing import TYPE_CHECKING, Any
@@ -18,6 +19,8 @@ if TYPE_CHECKING:
     from .api import TopbandCloudApi
 
 _LOGGER = logging.getLogger(__name__)
+
+PointListener = Callable[[], None]
 
 
 class PointType(IntEnum):
@@ -69,13 +72,15 @@ class DataPoint:
     name: str
     point_type: int
     value: Any = None
-    _listeners: set = field(default_factory=set, repr=False, compare=False)
+    _listeners: set[PointListener] = field(
+        default_factory=set, repr=False, compare=False
+    )
 
-    def add_listener(self, callback) -> None:
+    def add_listener(self, callback: PointListener) -> None:
         """Register an entity update callback."""
         self._listeners.add(callback)
 
-    def remove_listener(self, callback) -> None:
+    def remove_listener(self, callback: PointListener) -> None:
         """Unregister an entity update callback."""
         self._listeners.discard(callback)
 
@@ -95,16 +100,14 @@ class DataPoint:
                 case _:
                     return self.value
         except (TypeError, ValueError):
-            _LOGGER.warning(
-                "Invalid value %r for data point %s", self.value, self.name
-            )
+            _LOGGER.warning("Invalid value %r for data point %s", self.value, self.name)
             return None
 
     def encode_value(self, value: Any) -> Any:
         """Encode a value for sending to the device."""
         match self.point_type:
             case PointType.FLOAT_X10:
-                return int(round(float(value) * 10))
+                return round(float(value) * 10)
             case PointType.INTEGER | PointType.CONSTANT:
                 return int(value)
             case _:
@@ -113,11 +116,13 @@ class DataPoint:
     async def async_set_value(self, value: Any) -> None:
         """Send a new value to the device.
 
-        Updates the entity state optimistically; the device echo (cmd 98)
-        confirms or corrects it afterwards.
+        The value is applied and propagated only after the command was
+        handed to the broker; the device echo (cmd 98) confirms or corrects
+        it afterwards.
         """
-        self.value = self.encode_value(value)
-        await self.device.async_send_data_point(self)
+        encoded = self.encode_value(value)
+        await self.device.async_send_data_point(self, encoded)
+        self.value = encoded
         self.notify_listeners()
 
     def handle_update(self, value: Any) -> None:
@@ -141,22 +146,41 @@ class SmartDevice:
     online: bool
     data_points: dict[str, DataPoint] = field(default_factory=dict)
     # Entity configs, populated by datapoints.build_entity_configs()
-    water_heaters: list = field(default_factory=list)
-    climates: list = field(default_factory=list)
-    selects: list = field(default_factory=list)
-    switches: list = field(default_factory=list)
-    numbers: list = field(default_factory=list)
-    buttons: list = field(default_factory=list)
-    binary_sensors: list = field(default_factory=list)
-    sensors: list = field(default_factory=list)
+    water_heaters: list[tuple[WaterHeaterSpec, dict[str, DataPoint]]] = field(
+        default_factory=list
+    )
+    climates: list[tuple[ClimateSpec, dict[str, DataPoint]]] = field(
+        default_factory=list
+    )
+    selects: list[tuple[SelectSpec, DataPoint]] = field(default_factory=list)
+    switches: list[tuple[SwitchSpec, DataPoint]] = field(default_factory=list)
+    numbers: list[tuple[NumberSpec, DataPoint]] = field(default_factory=list)
+    buttons: list[tuple[ButtonSpec, DataPoint]] = field(default_factory=list)
+    binary_sensors: list[tuple[BinarySensorSpec, DataPoint]] = field(
+        default_factory=list
+    )
+    sensors: list[tuple[SensorSpec, DataPoint]] = field(default_factory=list)
     unknown_points: dict[str, DataPoint] = field(default_factory=dict)
 
     @classmethod
     def from_api_response(
         cls, api: TopbandCloudApi, source: dict[str, Any]
-    ) -> SmartDevice:
-        """Create a device from a Topband cloud device list entry."""
+    ) -> SmartDevice | None:
+        """Create a device from a Topband cloud device list entry.
+
+        Returns None for entries that cannot be used, e.g. without a
+        gateway or MAC address (they could never receive commands or
+        updates).
+        """
         gateway = source.get("gateway") or {}
+        mac_address = str(source.get("extAddr") or "").strip()
+        if not gateway.get("uid") or not mac_address:
+            _LOGGER.warning(
+                "Skipping device %s without gateway or MAC address",
+                source.get("deviceName") or source.get("model") or source.get("id"),
+            )
+            return None
+
         device = cls(
             api=api,
             device_type=source.get("deviceType", -1),
@@ -168,7 +192,7 @@ class SmartDevice:
                 uid=gateway.get("uid"),
                 product_id=gateway.get("productId"),
             ),
-            mac_address=source.get("extAddr"),
+            mac_address=mac_address,
             online=bool(source.get("online")),
         )
         device.data_points = {
@@ -180,6 +204,7 @@ class SmartDevice:
                 value=point.get("value"),
             )
             for point_name, point in (source.get("pointDataMap") or {}).items()
+            if isinstance(point, dict)
         }
         return device
 
@@ -192,15 +217,22 @@ class SmartDevice:
                     "%s: received unknown data point %s", self.name, point_name
                 )
                 continue
-            data_point.handle_update(data.get("v"))
+            if not isinstance(data, dict) or "v" not in data:
+                _LOGGER.warning(
+                    "%s: received invalid update for data point %s",
+                    self.name,
+                    point_name,
+                )
+                continue
+            data_point.handle_update(data["v"])
 
-    async def async_send_data_point(self, data_point: DataPoint) -> None:
+    async def async_send_data_point(self, data_point: DataPoint, value: Any) -> None:
         """Send a data point update to the device."""
         command = {
             "i": data_point.index,
             "t": data_point.point_type,
             "len": 0,
-            "v": data_point.value,
+            "v": value,
         }
         await self.api.async_send_mqtt_command(self, command)
 

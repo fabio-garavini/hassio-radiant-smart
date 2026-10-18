@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING
 
 from homeassistant.components.button import ButtonEntity
 from homeassistant.core import HomeAssistant
@@ -12,6 +13,9 @@ from . import TopbandConfigEntry
 from .datapoints import ButtonSpec
 from .entity import RadiantSmartEntity
 from .models import DataPoint
+
+if TYPE_CHECKING:
+    from .models import SmartDevice
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -37,7 +41,10 @@ class RadiantSmartButton(RadiantSmartEntity, ButtonEntity):
     """Representation of a Radiant Smart button."""
 
     def __init__(
-        self, device, spec: ButtonSpec, data_point: DataPoint
+        self,
+        device: SmartDevice,
+        spec: ButtonSpec,
+        data_point: DataPoint,
     ) -> None:
         """Initialize the button."""
         self._device = device

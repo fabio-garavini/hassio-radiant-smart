@@ -1,0 +1,50 @@
+# Linting rules for the Radiant Smart integration.
+# Run with: ruff check custom_components/
+target-version = "py312"
+line-length = 88
+
+[lint]
+select = [
+    "A",   # flake8-builtins
+    "ASYNC", # flake8-async
+    "B",   # flake8-bugbear
+    "BLE", # flake8-blind-except
+    "C4",  # flake8-comprehensions
+    "D",   # pydocstyle
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "PL",  # pylint
+    "RUF", # ruff-specific
+    "S",   # flake8-bandit
+    "SIM", # flake8-simplify
+    "UP",  # pyupgrade
+]
+ignore = [
+    # The Topband cloud login protocol requires an unsalted MD5 password hash
+    "S324",
+    # Docstring style preferences
+    "D203", # one blank line before class docstring (conflicts with D211)
+    "D213", # multi-line summary on second line (conflicts with D212)
+]
+
+[lint.pydocstyle]
+convention = "pep257"
+
+[lint.per-file-ignores]
+"custom_components/radiant_smart/const.py" = [
+    "S105", # key names contain "token"/"password"; no secrets live here
+]
+"tests/*" = [
+    "S101",    # asserts are the point of tests
+    "S105",    # fake token-like literals
+    "S106",    # fake credentials passed to helpers
+    "S107",    # fake credential defaults
+    "D",       # tests document themselves
+    "PLR2004", # magic values are fine in assertions
+    "PLR0913", # helpers with many parameters are fine in tests
+    "PLR0917", # helpers with many positional parameters are fine in tests
+    "PLC0415", # local imports keep stubs close to their use
+    "RUF012",  # mutable class defaults in test stand-ins
+]

@@ -80,32 +80,21 @@ class RadiantSmartThermostat(RadiantSmartEntity, ClimateEntity):
 
     def _update_attrs(self) -> None:
         """Update all state attributes from the data points."""
-        override_enable = self._points["override_enable"].get_value()
-        hvac_mode = self._spec.hvac_modes.get(
-            self._points["hvac_mode"].get_value()
-        )
+        hvac_mode = self._spec.hvac_modes.get(self._points["hvac_mode"].get_value())
         self._attr_hvac_mode = hvac_mode
         self._attr_hvac_action = (
             HVACAction.HEATING
             if self._points["current_action"].get_value()
             else HVACAction.IDLE
         )
+        # The room temperature is always the measured current temperature.
+        self._attr_current_temperature = self._points["current_temp"].get_value()
         # In AUTO mode with an override active, the override temperature is
         # the effective target temperature.
-        if hvac_mode == HVACMode.AUTO and override_enable:
-            self._attr_current_temperature = self._points[
-                "override_temp"
-            ].get_value()
-            self._attr_target_temperature = self._points[
-                "override_temp"
-            ].get_value()
+        if hvac_mode == HVACMode.AUTO and self._points["override_enable"].get_value():
+            self._attr_target_temperature = self._points["override_temp"].get_value()
         else:
-            self._attr_current_temperature = self._points[
-                "current_temp"
-            ].get_value()
-            self._attr_target_temperature = self._points[
-                "target_temp"
-            ].get_value()
+            self._attr_target_temperature = self._points["target_temp"].get_value()
 
     def _handle_update(self) -> None:
         """Handle a data point update."""
@@ -118,8 +107,10 @@ class RadiantSmartThermostat(RadiantSmartEntity, ClimateEntity):
         if temperature is None:
             return
         if self._attr_hvac_mode == HVACMode.AUTO:
-            await self._points["override_enable"].async_set_value(1)
+            # Set the override temperature before enabling it, so the
+            # override takes effect with the new value.
             await self._points["override_temp"].async_set_value(temperature)
+            await self._points["override_enable"].async_set_value(1)
         else:
             await self._points["target_temp"].async_set_value(temperature)
 
