@@ -75,8 +75,8 @@ class TestRealDeviceList:
             "software_version",
             "wifi_signal",
         ]
-        # Only the holiday program blob remains unmapped
-        assert list(device.unknown_points) == ["PARAM_ID_TH_HOLIDAY"]
+        # The holiday program blob is ignored, nothing is unmapped
+        assert list(device.unknown_points) == []
 
     def test_boiler_entities(self) -> None:
         device = self.boiler
@@ -112,10 +112,8 @@ class TestRealDeviceList:
             "software_version",
             "wifi_signal",
         ]
-        assert sorted(device.unknown_points) == [
-            "PARAM_ID_BOILER_CH_SET",
-            "PARAM_ID_BOILER_CTRL_TYPE",
-        ]
+        # CH_SET / CTRL_TYPE are ignored, nothing is unmapped
+        assert list(device.unknown_points) == []
 
     def test_string_values_are_decoded(self) -> None:
         """The cloud reports all values as strings; decoding must handle it."""

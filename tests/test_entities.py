@@ -181,18 +181,61 @@ class TestBoilerDevice:
         assert thermostat_connection.state == STATE_ON
 
     async def test_unknown_points_are_disabled_diagnostics(
-        self, hass, setup_entry
+        self, hass, aioclient_mock, patch_paho, device_list_rows
     ) -> None:
-        """Unmapped points (e.g. PARAM_ID_BOILER_CH_SET) become disabled
-        diagnostic sensors."""
+        """Points without a known mapping become disabled diagnostic
+        sensors."""
+        from conftest import ENTRY_DATA, LOGIN_RESPONSE
+        from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+        from custom_components.radiant_smart.api import (
+            DEVICE_LIST_URL,
+            TOKEN_URL,
+        )
+
+        # Inject an unmapped point into the captured device list
+        boiler_row = next(r for r in device_list_rows if r["model"] == "TH311")
+        boiler_row["pointDataMap"]["PARAM_ID_TEST_UNMAPPED"] = {
+            "pointIndex": 9999,
+            "pointType": 1,
+            "value": 7,
+        }
+        aioclient_mock.post(TOKEN_URL, json=LOGIN_RESPONSE)
+        aioclient_mock.post(
+            DEVICE_LIST_URL,
+            json={"status": 0, "data": {"rows": device_list_rows}},
+        )
+
+        entry = MockConfigEntry(
+            domain=DOMAIN, data=dict(ENTRY_DATA), version=1, unique_id="home-1"
+        )
+        entry.add_to_hass(hass)
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
         registry = er.async_get(hass)
-        entry = registry.async_get_entity_id("sensor", DOMAIN, f"{BOILER_MAC}_8272")
-        assert entry is not None
-        registry_entry = registry.async_get(entry)
+        entity_id = registry.async_get_entity_id("sensor", DOMAIN, f"{BOILER_MAC}_9999")
+        assert entity_id is not None
+        registry_entry = registry.async_get(entity_id)
         assert registry_entry is not None
         assert registry_entry.disabled_by is RegistryEntryDisabler.INTEGRATION
         # Disabled entities have no state
-        assert hass.states.get(entry) is None
+        assert hass.states.get(entity_id) is None
+
+        # The explicitly ignored points create no entities at all
+        for unique_id in (
+            f"{BOILER_MAC}_8272",  # PARAM_ID_BOILER_CH_SET
+            f"{BOILER_MAC}_8207",  # PARAM_ID_BOILER_CTRL_TYPE
+        ):
+            assert registry.async_get_entity_id("sensor", DOMAIN, unique_id) is None
+        assert (
+            registry.async_get_entity_id(
+                "sensor",
+                DOMAIN,
+                f"{THERMOSTAT_MAC}_4123",  # PARAM_ID_TH_HOLIDAY
+            )
+            is None
+        )
 
 
 class TestAvailability:

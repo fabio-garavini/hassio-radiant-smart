@@ -67,6 +67,9 @@ DEVICE_POINTS = {
         "pointType": 8,
         "value": "blob",
     },
+    "PARAM_ID_BOILER_CH_SET": {"pointIndex": 36, "pointType": 1, "value": 3},
+    "PARAM_ID_BOILER_CTRL_TYPE": {"pointIndex": 37, "pointType": 1, "value": 2},
+    "PARAM_ID_TH_HOLIDAY": {"pointIndex": 38, "pointType": 8, "value": "blob"},
     # Unmapped leftovers
     "PARAM_ID_MYSTERY_VALUE": {"pointIndex": 35, "pointType": 1, "value": 7},
 }
@@ -186,6 +189,9 @@ class TestIgnoredPoints:
             "PARAM_ID_SYS_DEVICE_MODULE",
             "PARAM_ID_BOILER_DHW_PRO_MON",
             "PARAM_ID_TH_ROOM_PROG_DAY_MON",
+            "PARAM_ID_BOILER_CH_SET",
+            "PARAM_ID_BOILER_CTRL_TYPE",
+            "PARAM_ID_TH_HOLIDAY",
         ):
             assert ignored in all_names  # still on the device
         exposed_names = {
@@ -204,11 +210,17 @@ class TestIgnoredPoints:
             "PARAM_ID_SYS_DEVICE_MODULE",
             "PARAM_ID_BOILER_DHW_PRO_MON",
             "PARAM_ID_TH_ROOM_PROG_DAY_MON",
+            "PARAM_ID_BOILER_CH_SET",
+            "PARAM_ID_BOILER_CTRL_TYPE",
+            "PARAM_ID_TH_HOLIDAY",
         }
         assert not set(device.unknown_points) & {
             "PARAM_ID_SYS_DEVICE_MODULE",
             "PARAM_ID_BOILER_DHW_PRO_MON",
             "PARAM_ID_TH_ROOM_PROG_DAY_MON",
+            "PARAM_ID_BOILER_CH_SET",
+            "PARAM_ID_BOILER_CTRL_TYPE",
+            "PARAM_ID_TH_HOLIDAY",
         }
 
 

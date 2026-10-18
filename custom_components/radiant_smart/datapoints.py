@@ -37,6 +37,11 @@ IGNORED_POINTS = frozenset(
     {
         "PARAM_ID_SYS_DEVICE_MODULE",
         "PARAM_ID_TH_DELETE_TH_ADDR",
+        # Semantics not understood well enough to expose meaningfully
+        "PARAM_ID_BOILER_CH_SET",
+        "PARAM_ID_BOILER_CTRL_TYPE",
+        # Holiday schedule blob, not yet supported
+        "PARAM_ID_TH_HOLIDAY",
     }
 )
 
