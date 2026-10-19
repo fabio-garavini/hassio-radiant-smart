@@ -182,6 +182,9 @@ pip install -r requirements_test.txt
 pytest
 ```
 
+Note: the pinned test plugin matches Home Assistant 2026.10.1 and requires
+Python >= 3.14.
+
 Linting uses [ruff](https://docs.astral.sh/ruff/) with the configuration in
 `ruff.toml`:
 

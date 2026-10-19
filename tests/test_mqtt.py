@@ -346,6 +346,9 @@ class TestReconnect:
         # Unloading cancels the pending retry timer.
         assert client._retry_cancel is not None
         await client.async_disconnect()
+        # Drain any reconnect task still in flight from the last timer
+        await client._hass.async_block_till_done()
+        await asyncio.sleep(0)
 
     async def test_disconnect_cancels_pending_retry(self, monkeypatch) -> None:
         """Unloading the client must cancel a pending retry timer."""
@@ -374,4 +377,39 @@ class TestReconnect:
 
         # No further reconnect attempts were scheduled after the unload
         assert len(attempts) == 1
+        assert not client.connected
+
+    async def test_disconnect_during_throttle_prevents_reconnect(
+        self, monkeypatch
+    ) -> None:
+        """Unloading while a reconnect waits out the throttle must not let
+        the pending reconnect resurrect the client."""
+        client = make_mqtt_client(token="token-1")
+        paho = await connect_client(client)
+        # A short, non-zero interval so the second attempt really waits
+        monkeypatch.setattr(mqtt_mod, "RECONNECT_MIN_INTERVAL", 0.05)
+        reauths: list[str] = []
+
+        async def reauth() -> None:
+            reauths.append("called")
+
+        client._reauth_callback = reauth
+
+        # First drop reconnects immediately (the first attempt is never
+        # throttled) and succeeds.
+        client._on_disconnect(paho, None, None, 7, None)
+        await client._hass.async_block_till_done()
+        assert reauths == ["called"]
+        assert client.connected
+
+        # Second drop: the reconnect task starts, hits the throttle wait...
+        paho2 = client._client
+        client._on_disconnect(paho2, None, None, 7, None)
+        await asyncio.sleep(0)  # let the reconnect task reach the wait
+        # ...and the client is disconnected while it waits.
+        await client.async_disconnect()
+        await asyncio.sleep(0.2)  # longer than the throttle wait
+
+        # No second re-authentication and no resurrected client
+        assert reauths == ["called"]
         assert not client.connected

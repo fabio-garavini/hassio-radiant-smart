@@ -16,7 +16,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.13"
+          python-version: "3.14"
       - name: Install ruff
         run: pip install ruff
       - name: Run ruff check
@@ -33,7 +33,9 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.13"
+          # The pinned pytest-homeassistant-custom-component (Home Assistant
+          # 2026.10.1) requires Python 3.14
+          python-version: "3.14"
       - name: Install dependencies
         # requirements_test.txt brings the pinned Home Assistant version and
         # the full test toolchain (aioclient_mock, real hass fixture, ...)

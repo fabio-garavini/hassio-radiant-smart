@@ -1,5 +1,5 @@
 # Test requirements: the plugin pins the Home Assistant version and brings
 # the full Home Assistant test toolchain (pytest-asyncio, aioclient_mock,
-# pytest-socket, ...).
+# pytest-socket, ...). Python >= 3.14 is required by this plugin version.
 -r requirements.txt
 pytest-homeassistant-custom-component==0.13.372

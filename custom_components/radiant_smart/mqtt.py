@@ -167,10 +167,15 @@ class TopbandMqttClient:
         self._reconnecting = True
         self._reconnect_scheduled = False
         try:
-            # Throttle reconnect attempts
-            elapsed = time.monotonic() - self._last_reconnect
-            if elapsed < RECONNECT_MIN_INTERVAL:
-                await asyncio.sleep(RECONNECT_MIN_INTERVAL - elapsed)
+            # Throttle reconnect attempts (the first attempt is not
+            # throttled: _last_reconnect only counts once set)
+            if self._last_reconnect:
+                elapsed = time.monotonic() - self._last_reconnect
+                if elapsed < RECONNECT_MIN_INTERVAL:
+                    await asyncio.sleep(RECONNECT_MIN_INTERVAL - elapsed)
+            if self._stopped:
+                # The client was disconnected while we were waiting
+                return
             self._last_reconnect = time.monotonic()
 
             _LOGGER.info("Reconnecting to Topband cloud MQTT broker")
@@ -182,6 +187,9 @@ class TopbandMqttClient:
                     "Re-authentication with the Topband cloud failed; "
                     "waiting for the user to re-authenticate Radiant Smart"
                 )
+                return
+            if self._stopped:
+                # The client was disconnected while re-authenticating
                 return
             await self._async_create_client()
             _LOGGER.info("Reconnected to Topband cloud MQTT broker")
