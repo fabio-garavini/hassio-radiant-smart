@@ -36,6 +36,9 @@ convention = "pep257"
 "custom_components/radiant_smart/const.py" = [
     "S105", # key names contain "token"/"password"; no secrets live here
 ]
+"tests/conftest.py" = [
+    "E402", # the sys.path bootstrap must run between the import blocks
+]
 "tests/*" = [
     "S101",    # asserts are the point of tests
     "S105",    # fake token-like literals

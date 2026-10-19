@@ -1,3 +1,6 @@
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+# Make the repository root importable so the tests can import the
+# custom_components package (applied before conftest.py is loaded)
+pythonpath = ["."]

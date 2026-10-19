@@ -22,6 +22,13 @@ import types
 from pathlib import Path
 from typing import Any
 
+# Make the repository root importable before importing the integration;
+# bare `pytest` (as used in CI) does not add the rootdir to sys.path.
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+FIXTURES_DIR = PROJECT_ROOT / "tests" / "fixtures"
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
 import pytest
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
 from pytest_homeassistant_custom_component.common import MockConfigEntry
@@ -37,11 +44,6 @@ from custom_components.radiant_smart.const import (
     CONF_TOKEN_DATA,
     DOMAIN,
 )
-
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-FIXTURES_DIR = PROJECT_ROOT / "tests" / "fixtures"
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
 
 # The credentials stored in a config entry (the account under test)
 ENTRY_DATA: dict[str, Any] = {
